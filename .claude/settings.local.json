@@ -13,7 +13,10 @@
       "Bash(git add:*)",
       "Bash(git branch:*)",
       "Bash(git commit -m ':*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(git remote:*)",
+      "Bash(git push:*)",
+      "Bash(git fetch:*)"
     ]
   }
 }
