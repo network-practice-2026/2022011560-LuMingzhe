@@ -6,10 +6,16 @@
     @back="$emit('back')"
     @select="currentId = $event"
   >
+    <template #sidebar-actions>
+      <button class="add-page-btn" type="button" aria-label="添加新的知识图库页面">
+        +
+      </button>
+    </template>
+
     <div class="knowledge-page">
       <div class="content-header">
-        <h3>TCP/IP 五层模型知识库</h3>
-        <p>围绕应用层、传输层、网络层、数据链路层、物理层组织核心概念、协议、设备和封装过程。</p>
+        <h3>{{ currentItem?.title || '暂无知识库页面' }}</h3>
+        <p>{{ currentItem?.description || '请稍后重试' }}</p>
       </div>
 
       <KnowledgeTabs
@@ -50,16 +56,11 @@ import KnowledgeGraphView from '../components/KnowledgeGraphView.vue'
 import {
   fetchKnowledgeGraph,
   fetchKnowledgeLayer,
-  fetchKnowledgeLayers
+  fetchKnowledgeLayers,
+  fetchKnowledgeTopics
 } from '../services/knowledgeApi.js'
 
-const knowledgeItems = [
-  {
-    id: 'tcp-ip-knowledge',
-    title: 'TCP/IP 五层模型',
-    description: '分层学习核心概念、协议、设备、封装与协作关系'
-  }
-]
+const knowledgeItems = ref([])
 
 const layerTabs = [
   { id: 'application', title: '应用层' },
@@ -74,7 +75,7 @@ const tabs = [
   { id: 'graph', title: '知识图谱' }
 ]
 
-const currentId = ref('tcp-ip-knowledge')
+const currentId = ref('')
 const activeTab = ref('application')
 const layers = ref([])
 const layerCache = ref({})
@@ -82,7 +83,16 @@ const graphData = ref(null)
 const loading = ref(false)
 const error = ref('')
 
+const currentItem = computed(() =>
+  knowledgeItems.value.find(item => item.id === currentId.value)
+)
 const currentLayer = computed(() => layerCache.value[activeTab.value] || null)
+
+const loadKnowledgeTopics = async () => {
+  if (knowledgeItems.value.length > 0) return
+  knowledgeItems.value = await fetchKnowledgeTopics()
+  currentId.value = knowledgeItems.value[0]?.id || ''
+}
 
 const loadLayers = async () => {
   if (layers.value.length > 0) return
@@ -108,6 +118,7 @@ const loadActiveTab = async () => {
   error.value = ''
 
   try {
+    await loadKnowledgeTopics()
     await loadLayers()
 
     if (activeTab.value === 'graph') {
@@ -134,6 +145,25 @@ defineEmits(['back'])
 </script>
 
 <style scoped>
+.add-page-btn {
+  width: 100%;
+  height: 40px;
+  margin-top: 16px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-color);
+  color: var(--primary-color);
+  cursor: pointer;
+  font-size: 22px;
+  font-family: var(--font-family);
+  line-height: 1;
+}
+
+.add-page-btn:hover {
+  border-color: var(--primary-color);
+  background: var(--active-bg-color);
+}
+
 .knowledge-page {
   display: flex;
   flex-direction: column;

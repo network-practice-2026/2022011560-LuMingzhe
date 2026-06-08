@@ -9,6 +9,11 @@ async function requestJson(url) {
   return response.json()
 }
 
+export async function fetchKnowledgeTopics() {
+  const data = await requestJson('/api/knowledge/topics')
+  return data.topics || []
+}
+
 export async function fetchKnowledgeLayers() {
   const data = await requestJson('/api/knowledge/layers')
   return data.layers || []

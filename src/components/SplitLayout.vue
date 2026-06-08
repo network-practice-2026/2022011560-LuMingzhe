@@ -9,6 +9,7 @@
           ← 返回
         </button>
         <h2 class="page-title">{{ title }}</h2>
+        <slot name="sidebar-actions" />
       </header>
 
       <nav class="nav-list">
