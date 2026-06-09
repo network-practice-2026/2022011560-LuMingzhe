@@ -926,6 +926,7 @@ function getSimulations() {
   return db.prepare(`
     SELECT id, title, description, item_order AS "order"
     FROM simulation_items
+    WHERE data IS NOT NULL
     ORDER BY item_order ASC
   `).all()
 }
