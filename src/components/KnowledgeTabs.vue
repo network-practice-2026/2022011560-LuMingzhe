@@ -9,14 +9,14 @@
       <button class="tab-btn" @click="$emit('select', tab.id)">
         {{ tab.title }}
       </button>
-      <div v-if="!isBuiltin && tab.id !== 'graph'" class="tab-actions">
+      <div v-if="!isBuiltin && editMode && tab.id !== 'graph'" class="tab-actions">
         <button type="button" aria-label="重命名页面" @click.stop="$emit('rename-tab', tab)">编辑</button>
         <button type="button" aria-label="删除页面" @click.stop="$emit('delete-tab', tab)">删除</button>
       </div>
     </div>
 
     <button
-      v-if="!isBuiltin"
+      v-if="!isBuiltin && editMode"
       class="add-tab-btn"
       type="button"
       aria-label="添加新的知识页面"
@@ -40,6 +40,10 @@ defineProps({
   isBuiltin: {
     type: Boolean,
     default: true
+  },
+  editMode: {
+    type: Boolean,
+    default: false
   }
 })
 

@@ -1,7 +1,7 @@
 <template>
   <div class="layer-view">
     <section class="summary-card">
-      <form v-if="summaryEditing && !isBuiltin" class="inline-form summary-form" @submit.prevent="updateSummary">
+      <form v-if="summaryEditing && !isBuiltin && editMode" class="inline-form summary-form" @submit.prevent="updateSummary">
         <input v-model.trim="forms.summary.title" type="text" placeholder="页面标题" />
         <textarea v-model.trim="forms.summary.summary" rows="3" placeholder="页面摘要"></textarea>
         <div class="form-actions">
@@ -12,7 +12,7 @@
       </form>
 
       <template v-else>
-        <div class="card-toolbar" v-if="!isBuiltin">
+        <div class="card-toolbar" v-if="!isBuiltin && editMode">
           <button type="button" class="text-btn" @click="startSummaryEdit">编辑摘要</button>
         </div>
         <h3>{{ layer.title }}</h3>
@@ -30,7 +30,7 @@
           <span>{{ section.title }}</span>
           <span class="toggle-mark">{{ expanded[section.id] ? '−' : '+' }}</span>
         </button>
-        <div v-if="!isBuiltin && section.custom" class="section-actions">
+        <div v-if="!isBuiltin && editMode && section.custom" class="section-actions">
           <button type="button" @click="startSectionEdit(section)">编辑</button>
           <button type="button" @click="removeSection(section)">删除</button>
         </div>
@@ -56,7 +56,7 @@
               </form>
             </template>
             <template v-else>
-              <div class="card-toolbar" v-if="!isBuiltin">
+              <div class="card-toolbar" v-if="!isBuiltin && editMode">
                 <button type="button" class="text-btn" @click="startSectionItemEdit(section, index, item)">编辑</button>
                 <button type="button" class="text-btn" @click="removeSectionItem(section, index)">删除</button>
               </div>
@@ -80,7 +80,7 @@
               </form>
             </template>
             <template v-else>
-              <div class="card-toolbar" v-if="!isBuiltin">
+              <div class="card-toolbar" v-if="!isBuiltin && editMode">
                 <button type="button" class="text-btn" @click="startSectionItemEdit(section, index, protocol)">编辑</button>
                 <button type="button" class="text-btn" @click="removeSectionItem(section, index)">删除</button>
               </div>
@@ -108,7 +108,7 @@
               </form>
             </template>
             <template v-else>
-              <div class="card-toolbar" v-if="!isBuiltin">
+              <div class="card-toolbar" v-if="!isBuiltin && editMode">
                 <button type="button" class="text-btn" @click="startSectionItemEdit(section, index, device)">编辑</button>
                 <button type="button" class="text-btn" @click="removeSectionItem(section, index)">删除</button>
               </div>
@@ -119,7 +119,7 @@
         </div>
 
         <div v-else-if="section.id === 'encapsulation'" class="encapsulation">
-          <form v-if="!isBuiltin" class="inline-form" @submit.prevent="updateEncapsulation">
+          <form v-if="!isBuiltin && editMode" class="inline-form" @submit.prevent="updateEncapsulation">
             <input v-model.trim="forms.encapsulation.pdu" type="text" placeholder="PDU 名称" />
             <input v-model.trim="forms.encapsulation.nextLayer" type="text" placeholder="下一层" />
             <button type="submit" :disabled="submitting">更新封装信息</button>
@@ -136,7 +136,7 @@
               class="field-chip"
             >
               {{ field }}
-              <button v-if="!isBuiltin" type="button" @click="removeHeaderField(index)">×</button>
+              <button v-if="!isBuiltin && editMode" type="button" @click="removeHeaderField(index)">×</button>
             </span>
           </div>
           <p class="next-layer">向下交付：{{ layer.encapsulation.nextLayer }}</p>
@@ -155,7 +155,7 @@
               </form>
             </template>
             <template v-else>
-              <div class="card-toolbar" v-if="!isBuiltin">
+              <div class="card-toolbar" v-if="!isBuiltin && editMode">
                 <button type="button" class="text-btn" @click="startSectionItemEdit(section, index, item)">编辑</button>
                 <button type="button" class="text-btn" @click="removeSectionItem(section, index)">删除</button>
               </div>
@@ -178,7 +178,7 @@
               </form>
             </template>
             <template v-else>
-              <div class="card-toolbar" v-if="!isBuiltin">
+              <div class="card-toolbar" v-if="!isBuiltin && editMode">
                 <button type="button" class="text-btn" @click="startCustomItemEdit(section, index, item)">编辑</button>
                 <button type="button" class="text-btn" @click="removeCustomSectionItem(section, index)">删除</button>
               </div>
@@ -219,7 +219,7 @@
         </form>
 
         <button
-          v-if="!isBuiltin"
+          v-if="!isBuiltin && editMode"
           type="button"
           class="section-add-btn"
           aria-label="添加卡片内容"
@@ -231,7 +231,7 @@
         <p v-if="error && activeSection === section.id" class="error-text">{{ error }}</p>
       </div>
     </section>
-    <form v-if="sectionCreating && !isBuiltin" class="floating-section-form" @submit.prevent="createSection">
+    <form v-if="sectionCreating && !isBuiltin && editMode" class="floating-section-form" @submit.prevent="createSection">
       <input v-model.trim="forms.section.title" type="text" placeholder="新增 section-card 标题" />
       <div class="form-actions">
         <button type="submit" :disabled="submitting">添加</button>
@@ -241,7 +241,7 @@
     </form>
 
     <button
-      v-if="!isBuiltin"
+      v-if="!isBuiltin && editMode"
       type="button"
       class="floating-section-btn"
       aria-label="添加 section-card"
@@ -282,6 +282,10 @@ const props = defineProps({
   isBuiltin: {
     type: Boolean,
     default: true
+  },
+  editMode: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -323,6 +327,16 @@ const sectionEditing = ref('')
 const sectionCreating = ref(false)
 const itemAddingSection = ref('')
 const editingItemKey = ref('')
+
+const resetEditingState = () => {
+  error.value = ''
+  activeSection.value = ''
+  summaryEditing.value = false
+  sectionEditing.value = ''
+  sectionCreating.value = false
+  itemAddingSection.value = ''
+  editingItemKey.value = ''
+}
 
 const resetForms = () => {
   forms.summary = {
@@ -518,14 +532,15 @@ watch(() => props.layer.id, () => {
   renderedSections.value.forEach(section => {
     expanded[section.id] = true
   })
-  error.value = ''
-  activeSection.value = ''
-  summaryEditing.value = false
-  sectionEditing.value = ''
-  sectionCreating.value = false
-  itemAddingSection.value = ''
-  editingItemKey.value = ''
+  resetEditingState()
   resetForms()
+})
+
+watch(() => props.editMode, editMode => {
+  if (!editMode) {
+    resetEditingState()
+    resetForms()
+  }
 })
 
 watch(() => props.layer.customSections, sections => {

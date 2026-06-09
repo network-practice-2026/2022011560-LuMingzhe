@@ -19,8 +19,19 @@
 
     <div class="knowledge-page">
       <div class="content-header">
-        <h3>{{ currentItem?.title || '暂无知识库页面' }}</h3>
-        <p>{{ currentItem?.description || '请稍后重试' }}</p>
+        <div>
+          <h3>{{ currentItem?.title || '暂无知识库页面' }}</h3>
+          <p>{{ currentItem?.description || '请稍后重试' }}</p>
+        </div>
+        <button
+          v-if="canEditCurrentLibrary"
+          type="button"
+          class="edit-mode-btn"
+          :class="{ active: editMode }"
+          @click="editMode = !editMode"
+        >
+          {{ editMode ? '完成' : '编辑' }}
+        </button>
       </div>
 
       <KnowledgeTabs
@@ -28,6 +39,7 @@
         :tabs="tabs"
         :active-id="activeTab"
         :is-builtin="Boolean(currentItem?.isBuiltin)"
+        :edit-mode="editMode"
         @select="activeTab = $event"
         @add-tab="handleAddTab"
         @rename-tab="handleRenameTab"
@@ -52,6 +64,7 @@
         :library-id="currentId"
         :layer="currentLayer"
         :is-builtin="Boolean(currentItem?.isBuiltin)"
+        :edit-mode="editMode"
         @layer-updated="handleLayerUpdated"
       />
 
@@ -96,10 +109,12 @@ const graphData = ref(null)
 const loading = ref(false)
 const error = ref('')
 const showCreateModal = ref(false)
+const editMode = ref(false)
 
 const currentItem = computed(() =>
   knowledgeItems.value.find(item => item.id === currentId.value)
 )
+const canEditCurrentLibrary = computed(() => Boolean(currentItem.value && !currentItem.value.isBuiltin))
 const currentLayer = computed(() => layerCache.value[activeTab.value] || null)
 
 const resetLibraryData = () => {
@@ -244,12 +259,14 @@ const handleLayerUpdated = layer => {
 }
 
 watch(activeTab, () => {
+  editMode.value = false
   if (activeTab.value) {
     loadActiveTab()
   }
 })
 
 watch(currentId, () => {
+  editMode.value = false
   resetLibraryData()
   loadActiveTab()
 })
@@ -288,6 +305,10 @@ defineEmits(['back'])
 }
 
 .content-header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--spacing);
+  align-items: flex-start;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--border-color);
   margin-bottom: var(--spacing);
@@ -304,6 +325,24 @@ defineEmits(['back'])
   font-size: 14px;
   color: var(--muted-text-color);
   line-height: 1.5;
+}
+
+.edit-mode-btn {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border: 1px solid var(--primary-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-color);
+  color: var(--primary-color);
+  cursor: pointer;
+  font-family: var(--font-family);
+  line-height: 1.5;
+}
+
+.edit-mode-btn.active,
+.edit-mode-btn:hover {
+  background: var(--primary-color);
+  color: white;
 }
 
 .state-box {
