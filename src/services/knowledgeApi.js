@@ -1,5 +1,5 @@
-async function requestJson(url) {
-  const response = await fetch(url)
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, options)
 
   if (!response.ok) {
     const message = await response.text()
@@ -7,6 +7,16 @@ async function requestJson(url) {
   }
 
   return response.json()
+}
+
+function postJson(url, body) {
+  return requestJson(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  })
 }
 
 export async function fetchKnowledgeTopics() {
@@ -27,4 +37,34 @@ export async function fetchKnowledgeLayer(id) {
 export async function fetchKnowledgeGraph() {
   const data = await requestJson('/api/knowledge/graph')
   return data.graph || { nodes: [], edges: [], categories: [] }
+}
+
+export async function fetchKnowledgeLibraries() {
+  const data = await requestJson('/api/knowledge/libraries')
+  return data.libraries || []
+}
+
+export async function fetchKnowledgeLibraryTabs(libraryId) {
+  const data = await requestJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/tabs`)
+  return data.tabs || []
+}
+
+export async function fetchKnowledgeLibraryLayers(libraryId) {
+  const data = await requestJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers`)
+  return data.layers || []
+}
+
+export async function fetchKnowledgeLibraryLayer(libraryId, layerId) {
+  const data = await requestJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}`)
+  return data.layer
+}
+
+export async function fetchKnowledgeLibraryGraph(libraryId) {
+  const data = await requestJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/graph`)
+  return data.graph || { nodes: [], edges: [], categories: [] }
+}
+
+export async function createKnowledgeLibrary(payload) {
+  const data = await postJson('/api/knowledge/libraries', payload)
+  return data.library
 }

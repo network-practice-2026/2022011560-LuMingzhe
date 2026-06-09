@@ -1,5 +1,11 @@
 const express = require('express')
 const {
+  getKnowledgeLibraries,
+  getKnowledgeLibraryTabs,
+  getKnowledgeLibraryLayers,
+  getKnowledgeLibraryLayer,
+  getKnowledgeLibraryGraph,
+  createKnowledgeLibrary,
   getKnowledgeTopics,
   getLayers,
   getLayer,
@@ -43,6 +49,42 @@ app.get('/api/simulations/:id', (req, res) => {
   }
 
   res.json({ simulation })
+})
+
+app.get('/api/knowledge/libraries', (req, res) => {
+  res.json({ libraries: getKnowledgeLibraries() })
+})
+
+app.post('/api/knowledge/libraries', (req, res) => {
+  try {
+    const library = createKnowledgeLibrary(req.body)
+    res.status(201).json({ library })
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Knowledge library creation failed' })
+  }
+})
+
+app.get('/api/knowledge/libraries/:libraryId/tabs', (req, res) => {
+  res.json({ tabs: getKnowledgeLibraryTabs(req.params.libraryId) })
+})
+
+app.get('/api/knowledge/libraries/:libraryId/layers', (req, res) => {
+  res.json({ layers: getKnowledgeLibraryLayers(req.params.libraryId) })
+})
+
+app.get('/api/knowledge/libraries/:libraryId/layers/:layerId', (req, res) => {
+  const layer = getKnowledgeLibraryLayer(req.params.libraryId, req.params.layerId)
+
+  if (!layer) {
+    res.status(404).json({ error: 'Knowledge layer not found' })
+    return
+  }
+
+  res.json({ layer })
+})
+
+app.get('/api/knowledge/libraries/:libraryId/graph', (req, res) => {
+  res.json({ graph: getKnowledgeLibraryGraph(req.params.libraryId) })
 })
 
 app.get('/api/knowledge/topics', (req, res) => {

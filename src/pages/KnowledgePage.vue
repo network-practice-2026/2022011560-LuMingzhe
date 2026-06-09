@@ -4,10 +4,15 @@
     :items="knowledgeItems"
     :current-id="currentId"
     @back="$emit('back')"
-    @select="currentId = $event"
+    @select="selectLibrary"
   >
     <template #sidebar-actions>
-      <button class="add-page-btn" type="button" aria-label="添加新的知识图库页面">
+      <button
+        class="add-page-btn"
+        type="button"
+        aria-label="添加新的知识图库页面"
+        @click="showCreateModal = true"
+      >
         +
       </button>
     </template>
@@ -19,6 +24,7 @@
       </div>
 
       <KnowledgeTabs
+        v-if="tabs.length"
         :tabs="tabs"
         :active-id="activeTab"
         @select="activeTab = $event"
@@ -44,6 +50,12 @@
 
       <div v-else class="state-box">暂无知识库数据</div>
     </div>
+
+    <CreateKnowledgeLibraryModal
+      v-if="showCreateModal"
+      @cancel="showCreateModal = false"
+      @created="handleLibraryCreated"
+    />
   </SplitLayout>
 </template>
 
@@ -53,55 +65,68 @@ import SplitLayout from '../components/SplitLayout.vue'
 import KnowledgeTabs from '../components/KnowledgeTabs.vue'
 import KnowledgeLayerView from '../components/KnowledgeLayerView.vue'
 import KnowledgeGraphView from '../components/KnowledgeGraphView.vue'
+import CreateKnowledgeLibraryModal from '../components/CreateKnowledgeLibraryModal.vue'
 import {
-  fetchKnowledgeGraph,
-  fetchKnowledgeLayer,
-  fetchKnowledgeLayers,
-  fetchKnowledgeTopics
+  fetchKnowledgeLibraries,
+  fetchKnowledgeLibraryGraph,
+  fetchKnowledgeLibraryLayer,
+  fetchKnowledgeLibraryLayers,
+  fetchKnowledgeLibraryTabs
 } from '../services/knowledgeApi.js'
 
+const graphTab = { id: 'graph', title: '知识图谱' }
+
 const knowledgeItems = ref([])
-
-const layerTabs = [
-  { id: 'application', title: '应用层' },
-  { id: 'transport', title: '传输层' },
-  { id: 'network', title: '网络层' },
-  { id: 'data-link', title: '数据链路层' },
-  { id: 'physical', title: '物理层' }
-]
-
-const tabs = [
-  ...layerTabs,
-  { id: 'graph', title: '知识图谱' }
-]
-
+const tabs = ref([])
 const currentId = ref('')
-const activeTab = ref('application')
+const activeTab = ref('')
 const layers = ref([])
 const layerCache = ref({})
 const graphData = ref(null)
 const loading = ref(false)
 const error = ref('')
+const showCreateModal = ref(false)
 
 const currentItem = computed(() =>
   knowledgeItems.value.find(item => item.id === currentId.value)
 )
 const currentLayer = computed(() => layerCache.value[activeTab.value] || null)
 
-const loadKnowledgeTopics = async () => {
+const resetLibraryData = () => {
+  tabs.value = []
+  activeTab.value = ''
+  layers.value = []
+  layerCache.value = {}
+  graphData.value = null
+  error.value = ''
+}
+
+const selectLibrary = id => {
+  if (currentId.value === id) return
+  currentId.value = id
+}
+
+const loadKnowledgeLibraries = async () => {
   if (knowledgeItems.value.length > 0) return
-  knowledgeItems.value = await fetchKnowledgeTopics()
+  knowledgeItems.value = await fetchKnowledgeLibraries()
   currentId.value = knowledgeItems.value[0]?.id || ''
 }
 
-const loadLayers = async () => {
-  if (layers.value.length > 0) return
-  layers.value = await fetchKnowledgeLayers()
+const loadTabs = async () => {
+  if (!currentId.value || tabs.value.length > 0) return
+  const libraryTabs = await fetchKnowledgeLibraryTabs(currentId.value)
+  tabs.value = [...libraryTabs, graphTab]
+  activeTab.value = tabs.value[0]?.id || 'graph'
 }
 
-const loadLayer = async (id) => {
-  if (layerCache.value[id]) return
-  const layer = await fetchKnowledgeLayer(id)
+const loadLayers = async () => {
+  if (!currentId.value || layers.value.length > 0) return
+  layers.value = await fetchKnowledgeLibraryLayers(currentId.value)
+}
+
+const loadLayer = async id => {
+  if (!currentId.value || !id || id === 'graph' || layerCache.value[id]) return
+  const layer = await fetchKnowledgeLibraryLayer(currentId.value, id)
   layerCache.value = {
     ...layerCache.value,
     [id]: layer
@@ -109,8 +134,8 @@ const loadLayer = async (id) => {
 }
 
 const loadGraph = async () => {
-  if (graphData.value) return
-  graphData.value = await fetchKnowledgeGraph()
+  if (!currentId.value || graphData.value) return
+  graphData.value = await fetchKnowledgeLibraryGraph(currentId.value)
 }
 
 const loadActiveTab = async () => {
@@ -118,7 +143,11 @@ const loadActiveTab = async () => {
   error.value = ''
 
   try {
-    await loadKnowledgeTopics()
+    await loadKnowledgeLibraries()
+
+    if (!currentId.value) return
+
+    await loadTabs()
     await loadLayers()
 
     if (activeTab.value === 'graph') {
@@ -133,7 +162,20 @@ const loadActiveTab = async () => {
   }
 }
 
+const handleLibraryCreated = library => {
+  showCreateModal.value = false
+  knowledgeItems.value = [...knowledgeItems.value, library]
+  currentId.value = library.id
+}
+
 watch(activeTab, () => {
+  if (activeTab.value) {
+    loadActiveTab()
+  }
+})
+
+watch(currentId, () => {
+  resetLibraryData()
   loadActiveTab()
 })
 

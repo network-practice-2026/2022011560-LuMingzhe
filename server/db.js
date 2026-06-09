@@ -8,9 +8,34 @@ const { simulations } = require('./seedSimulations')
 const dbPath = path.join(__dirname, 'knowledge.db')
 const db = new Database(dbPath)
 
+const DEFAULT_LIBRARY_ID = 'tcp-ip-knowledge'
+const DEFAULT_LIBRARY = {
+  id: DEFAULT_LIBRARY_ID,
+  title: 'TCP/IP 五层模型',
+  description: '分层学习核心概念、协议、设备、封装与协作关系',
+  order: 1,
+  isBuiltin: 1
+}
+
 db.pragma('journal_mode = WAL')
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS knowledge_libraries (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL,
+    item_order INTEGER NOT NULL,
+    is_builtin INTEGER NOT NULL DEFAULT 0
+  );
+
+  CREATE TABLE IF NOT EXISTS knowledge_library_tabs (
+    id TEXT NOT NULL,
+    library_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    tab_order INTEGER NOT NULL,
+    PRIMARY KEY (id, library_id)
+  );
+
   CREATE TABLE IF NOT EXISTS knowledge_layers (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -20,7 +45,7 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS knowledge_graph (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
+    id INTEGER PRIMARY KEY,
     data TEXT NOT NULL
   );
 
@@ -48,17 +73,53 @@ db.exec(`
   );
 `)
 
+function hasColumn(table, column) {
+  return db.prepare(`PRAGMA table_info(${table})`).all().some(info => info.name === column)
+}
+
+function addColumnIfMissing(table, column, definition) {
+  if (!hasColumn(table, column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+  }
+}
+
+function rebuildKnowledgeGraphTableIfNeeded() {
+  const createSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_graph'").get()?.sql || ''
+
+  if (!createSql.includes('CHECK (id = 1)')) return
+
+  db.exec(`
+    CREATE TABLE knowledge_graph_new (
+      id INTEGER PRIMARY KEY,
+      data TEXT NOT NULL,
+      library_id TEXT
+    );
+
+    INSERT INTO knowledge_graph_new (id, data, library_id)
+    SELECT id, data, library_id FROM knowledge_graph;
+
+    DROP TABLE knowledge_graph;
+    ALTER TABLE knowledge_graph_new RENAME TO knowledge_graph;
+  `)
+}
+
+rebuildKnowledgeGraphTableIfNeeded()
+
+addColumnIfMissing('knowledge_layers', 'library_id', 'TEXT')
+addColumnIfMissing('knowledge_graph', 'library_id', 'TEXT')
+addColumnIfMissing('knowledge_topics', 'library_id', 'TEXT')
+
 const layerCount = db.prepare('SELECT COUNT(*) AS count FROM knowledge_layers').get().count
 
 if (layerCount === 0) {
   const insertLayer = db.prepare(`
-    INSERT INTO knowledge_layers (id, title, layer_order, summary, data)
-    VALUES (@id, @title, @order, @summary, @data)
+    INSERT INTO knowledge_layers (id, title, layer_order, summary, data, library_id)
+    VALUES (@id, @title, @order, @summary, @data, @libraryId)
   `)
 
   const insertGraph = db.prepare(`
-    INSERT INTO knowledge_graph (id, data)
-    VALUES (1, @data)
+    INSERT INTO knowledge_graph (id, data, library_id)
+    VALUES (1, @data, @libraryId)
   `)
 
   const seed = db.transaction(() => {
@@ -68,11 +129,12 @@ if (layerCount === 0) {
         title: layer.title,
         order: layer.order,
         summary: layer.summary,
-        data: JSON.stringify(layer)
+        data: JSON.stringify(layer),
+        libraryId: DEFAULT_LIBRARY_ID
       })
     })
 
-    insertGraph.run({ data: JSON.stringify(graph) })
+    insertGraph.run({ data: JSON.stringify(graph), libraryId: DEFAULT_LIBRARY_ID })
   })
 
   seed()
@@ -82,13 +144,45 @@ const topicCount = db.prepare('SELECT COUNT(*) AS count FROM knowledge_topics').
 
 if (topicCount === 0) {
   const insertTopic = db.prepare(`
-    INSERT INTO knowledge_topics (id, title, description, item_order)
-    VALUES (@id, @title, @description, @order)
+    INSERT INTO knowledge_topics (id, title, description, item_order, library_id)
+    VALUES (@id, @title, @description, @order, @id)
   `)
 
   const seed = db.transaction(() => {
     topics.forEach(topic => {
       insertTopic.run(topic)
+    })
+  })
+
+  seed()
+}
+
+const libraryCount = db.prepare('SELECT COUNT(*) AS count FROM knowledge_libraries').get().count
+
+if (libraryCount === 0) {
+  const insertLibrary = db.prepare(`
+    INSERT INTO knowledge_libraries (id, title, description, item_order, is_builtin)
+    VALUES (@id, @title, @description, @order, @isBuiltin)
+  `)
+
+  const insertTab = db.prepare(`
+    INSERT INTO knowledge_library_tabs (id, library_id, title, tab_order)
+    VALUES (@id, @libraryId, @title, @order)
+  `)
+
+  const seed = db.transaction(() => {
+    insertLibrary.run(DEFAULT_LIBRARY)
+    db.prepare('UPDATE knowledge_layers SET library_id = ? WHERE library_id IS NULL').run(DEFAULT_LIBRARY_ID)
+    db.prepare('UPDATE knowledge_graph SET library_id = ? WHERE library_id IS NULL').run(DEFAULT_LIBRARY_ID)
+    db.prepare('UPDATE knowledge_topics SET library_id = id WHERE library_id IS NULL').run()
+
+    layers.forEach(layer => {
+      insertTab.run({
+        id: layer.id,
+        libraryId: DEFAULT_LIBRARY_ID,
+        title: layer.title,
+        order: layer.order
+      })
     })
   })
 
@@ -146,6 +240,178 @@ if (simulationCount === 0) {
 
 const parseLayer = row => JSON.parse(row.data)
 
+const slugify = value => {
+  const slug = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return slug || `knowledge-${Date.now().toString(36)}`
+}
+
+const uniqueLibraryId = title => {
+  const baseId = slugify(title)
+  let id = baseId
+  let index = 1
+
+  while (db.prepare('SELECT id FROM knowledge_libraries WHERE id = ?').get(id)) {
+    index += 1
+    id = `${baseId}-${index}`
+  }
+
+  return id
+}
+
+const assertString = (value, field) => {
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new Error(`${field} 不能为空`)
+  }
+
+  return value.trim()
+}
+
+function normalizeGraph(graphData = {}) {
+  return {
+    categories: Array.isArray(graphData.categories) ? graphData.categories : [],
+    nodes: Array.isArray(graphData.nodes) ? graphData.nodes : [],
+    edges: Array.isArray(graphData.edges) ? graphData.edges : []
+  }
+}
+
+function normalizeLayer(layer, order) {
+  const id = assertString(layer?.id, '层级 ID')
+  const title = assertString(layer?.title, '层级标题')
+
+  return {
+    ...layer,
+    id,
+    title,
+    order: Number.isFinite(Number(layer.order)) ? Number(layer.order) : order,
+    summary: typeof layer.summary === 'string' ? layer.summary : '',
+    concepts: Array.isArray(layer.concepts) ? layer.concepts : [],
+    protocols: Array.isArray(layer.protocols) ? layer.protocols : [],
+    devices: Array.isArray(layer.devices) ? layer.devices : [],
+    encapsulation: layer.encapsulation || { pdu: '', headerFields: [], nextLayer: '' },
+    collaboration: Array.isArray(layer.collaboration) ? layer.collaboration : []
+  }
+}
+
+function normalizeTabs(tabs, normalizedLayers) {
+  if (Array.isArray(tabs) && tabs.length > 0) {
+    return tabs.map((tab, index) => ({
+      id: assertString(tab?.id, 'Tab ID'),
+      title: assertString(tab?.title, 'Tab 标题'),
+      order: Number.isFinite(Number(tab.order)) ? Number(tab.order) : index + 1
+    }))
+  }
+
+  return normalizedLayers.map(layer => ({ id: layer.id, title: layer.title, order: layer.order }))
+}
+
+function getKnowledgeLibraries() {
+  return db.prepare(`
+    SELECT id, title, description, item_order AS "order", is_builtin AS "isBuiltin"
+    FROM knowledge_libraries
+    ORDER BY item_order ASC
+  `).all()
+}
+
+function getKnowledgeLibraryTabs(libraryId) {
+  return db.prepare(`
+    SELECT id, title, tab_order AS "order"
+    FROM knowledge_library_tabs
+    WHERE library_id = ?
+    ORDER BY tab_order ASC
+  `).all(libraryId)
+}
+
+function getKnowledgeLibraryLayers(libraryId) {
+  return db.prepare(`
+    SELECT id, title, layer_order AS "order", summary
+    FROM knowledge_layers
+    WHERE library_id = ?
+    ORDER BY layer_order ASC
+  `).all(libraryId)
+}
+
+function getKnowledgeLibraryLayer(libraryId, id) {
+  const row = db.prepare(`
+    SELECT data
+    FROM knowledge_layers
+    WHERE library_id = ? AND (id = ? OR id = ?)
+  `).get(libraryId, id, `${libraryId}:${id}`)
+  return row ? parseLayer(row) : null
+}
+
+function getKnowledgeLibraryGraph(libraryId) {
+  const row = db.prepare('SELECT data FROM knowledge_graph WHERE library_id = ?').get(libraryId)
+  return row ? JSON.parse(row.data) : { nodes: [], edges: [], categories: [] }
+}
+
+function createKnowledgeLibrary(payload) {
+  const title = assertString(payload?.title, '知识库标题')
+  const description = assertString(payload?.description, '知识库描述')
+  const normalizedLayers = Array.isArray(payload.layers)
+    ? payload.layers.map((layer, index) => normalizeLayer(layer, index + 1))
+    : []
+  const normalizedTabs = normalizeTabs(payload.tabs, normalizedLayers)
+  const normalizedGraph = normalizeGraph(payload.graph)
+  const nextOrder = db.prepare('SELECT COALESCE(MAX(item_order), 0) + 1 AS nextOrder FROM knowledge_libraries').get().nextOrder
+  const library = {
+    id: uniqueLibraryId(title),
+    title,
+    description,
+    order: nextOrder,
+    isBuiltin: 0
+  }
+
+  const insertLibrary = db.prepare(`
+    INSERT INTO knowledge_libraries (id, title, description, item_order, is_builtin)
+    VALUES (@id, @title, @description, @order, @isBuiltin)
+  `)
+  const insertTab = db.prepare(`
+    INSERT INTO knowledge_library_tabs (id, library_id, title, tab_order)
+    VALUES (@id, @libraryId, @title, @order)
+  `)
+  const insertLayer = db.prepare(`
+    INSERT INTO knowledge_layers (id, title, layer_order, summary, data, library_id)
+    VALUES (@id, @title, @order, @summary, @data, @libraryId)
+  `)
+  const insertGraph = db.prepare(`
+    INSERT INTO knowledge_graph (id, data, library_id)
+    VALUES (@id, @data, @libraryId)
+  `)
+
+  const create = db.transaction(() => {
+    insertLibrary.run(library)
+
+    normalizedTabs.forEach(tab => {
+      insertTab.run({ ...tab, libraryId: library.id })
+    })
+
+    normalizedLayers.forEach(layer => {
+      insertLayer.run({
+        id: `${library.id}:${layer.id}`,
+        title: layer.title,
+        order: layer.order,
+        summary: layer.summary,
+        data: JSON.stringify(layer),
+        libraryId: library.id
+      })
+    })
+
+    insertGraph.run({
+      id: nextOrder,
+      data: JSON.stringify(normalizedGraph),
+      libraryId: library.id
+    })
+  })
+
+  create()
+  return library
+}
+
 function getKnowledgeTopics() {
   return db.prepare(`
     SELECT id, title, description, item_order AS "order"
@@ -156,19 +422,25 @@ function getKnowledgeTopics() {
 
 function getLayers() {
   return db.prepare(`
-    SELECT id, title, layer_order AS "order", summary
+    SELECT data
     FROM knowledge_layers
+    WHERE library_id = ?
     ORDER BY layer_order ASC
-  `).all()
+  `).all(DEFAULT_LIBRARY_ID).map(parseLayer).map(layer => ({
+    id: layer.id,
+    title: layer.title,
+    order: layer.order,
+    summary: layer.summary
+  }))
 }
 
 function getLayer(id) {
-  const row = db.prepare('SELECT data FROM knowledge_layers WHERE id = ?').get(id)
+  const row = db.prepare('SELECT data FROM knowledge_layers WHERE library_id = ? AND id = ?').get(DEFAULT_LIBRARY_ID, id)
   return row ? parseLayer(row) : null
 }
 
 function getGraph() {
-  const row = db.prepare('SELECT data FROM knowledge_graph WHERE id = 1').get()
+  const row = db.prepare('SELECT data FROM knowledge_graph WHERE library_id = ?').get(DEFAULT_LIBRARY_ID)
   return row ? JSON.parse(row.data) : { nodes: [], edges: [], categories: [] }
 }
 
@@ -200,6 +472,12 @@ function getSimulation(id) {
 }
 
 module.exports = {
+  getKnowledgeLibraries,
+  getKnowledgeLibraryTabs,
+  getKnowledgeLibraryLayers,
+  getKnowledgeLibraryLayer,
+  getKnowledgeLibraryGraph,
+  createKnowledgeLibrary,
   getKnowledgeTopics,
   getLayers,
   getLayer,
