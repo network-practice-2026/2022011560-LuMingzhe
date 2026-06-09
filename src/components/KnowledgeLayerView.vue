@@ -1,45 +1,120 @@
 <template>
   <div class="layer-view">
     <section class="summary-card">
-      <div class="layer-order">TCP/IP 五层模型 · 第 {{ layer.order }} 层</div>
-      <h3>{{ layer.title }}</h3>
-      <p>{{ layer.summary }}</p>
+      <form v-if="summaryEditing && !isBuiltin" class="inline-form summary-form" @submit.prevent="updateSummary">
+        <input v-model.trim="forms.summary.title" type="text" placeholder="页面标题" />
+        <textarea v-model.trim="forms.summary.summary" rows="3" placeholder="页面摘要"></textarea>
+        <div class="form-actions">
+          <button type="submit" :disabled="submitting">保存摘要</button>
+          <button type="button" class="secondary-btn" @click="cancelSummaryEdit">取消</button>
+        </div>
+        <p v-if="error && activeSection === 'summary'" class="error-text">{{ error }}</p>
+      </form>
+
+      <template v-else>
+        <div class="card-toolbar" v-if="!isBuiltin">
+          <button type="button" class="text-btn" @click="startSummaryEdit">编辑摘要</button>
+        </div>
+        <h3>{{ layer.title }}</h3>
+        <p>{{ layer.summary }}</p>
+      </template>
     </section>
 
     <section
-      v-for="section in sections"
+      v-for="section in renderedSections"
       :key="section.id"
       class="section-card"
     >
-      <button class="section-header" @click="toggle(section.id)">
-        <span>{{ section.title }}</span>
-        <span class="toggle-mark">{{ expanded[section.id] ? '−' : '+' }}</span>
-      </button>
+      <div class="section-header-row">
+        <button class="section-header" @click="toggle(section.id)">
+          <span>{{ section.title }}</span>
+          <span class="toggle-mark">{{ expanded[section.id] ? '−' : '+' }}</span>
+        </button>
+        <div v-if="!isBuiltin && section.custom" class="section-actions">
+          <button type="button" @click="startSectionEdit(section)">编辑</button>
+          <button type="button" @click="removeSection(section)">删除</button>
+        </div>
+      </div>
 
       <div v-if="expanded[section.id]" class="section-body">
+        <form v-if="sectionEditing === section.id" class="inline-form compact-edit" @submit.prevent="saveSectionTitle(section)">
+          <input v-model.trim="forms.sectionEdit.title" type="text" placeholder="section-card 标题" />
+          <button type="submit" :disabled="submitting">保存</button>
+          <button type="button" class="secondary-btn" @click="sectionEditing = ''">取消</button>
+        </form>
+
         <div v-if="section.id === 'concepts'" class="item-grid">
-          <article v-for="item in layer.concepts" :key="item.title" class="info-item">
-            <h4>{{ item.title }}</h4>
-            <p>{{ item.description }}</p>
+          <article v-for="(item, index) in layer.concepts" :key="`${item.title}-${index}`" class="info-item">
+            <template v-if="editingItemKey === itemKey(section.id, index)">
+              <form class="inline-form item-edit-form" @submit.prevent="saveSectionItem(section, index)">
+                <input v-model.trim="forms.item.title" type="text" placeholder="概念标题" />
+                <textarea v-model.trim="forms.item.description" rows="2" placeholder="概念描述"></textarea>
+                <div class="form-actions">
+                  <button type="submit" :disabled="submitting">保存</button>
+                  <button type="button" class="secondary-btn" @click="cancelItemEdit">取消</button>
+                </div>
+              </form>
+            </template>
+            <template v-else>
+              <div class="card-toolbar" v-if="!isBuiltin">
+                <button type="button" class="text-btn" @click="startSectionItemEdit(section, index, item)">编辑</button>
+                <button type="button" class="text-btn" @click="removeSectionItem(section, index)">删除</button>
+              </div>
+              <h4>{{ item.title }}</h4>
+              <p>{{ item.description }}</p>
+            </template>
           </article>
         </div>
 
         <div v-else-if="section.id === 'protocols'" class="item-grid">
-          <article v-for="protocol in layer.protocols" :key="protocol.name" class="info-item">
-            <h4>{{ protocol.name }}</h4>
-            <p>{{ protocol.description }}</p>
-            <div v-if="protocol.examples?.length" class="tags">
-              <span v-for="example in protocol.examples" :key="example" class="tag">
-                {{ example }}
-              </span>
-            </div>
+          <article v-for="(protocol, index) in layer.protocols" :key="`${protocol.name}-${index}`" class="info-item">
+            <template v-if="editingItemKey === itemKey(section.id, index)">
+              <form class="inline-form item-edit-form" @submit.prevent="saveSectionItem(section, index)">
+                <input v-model.trim="forms.item.name" type="text" placeholder="协议名称" />
+                <textarea v-model.trim="forms.item.description" rows="2" placeholder="协议描述"></textarea>
+                <input v-model.trim="forms.item.examples" type="text" placeholder="示例，用逗号分隔" />
+                <div class="form-actions">
+                  <button type="submit" :disabled="submitting">保存</button>
+                  <button type="button" class="secondary-btn" @click="cancelItemEdit">取消</button>
+                </div>
+              </form>
+            </template>
+            <template v-else>
+              <div class="card-toolbar" v-if="!isBuiltin">
+                <button type="button" class="text-btn" @click="startSectionItemEdit(section, index, protocol)">编辑</button>
+                <button type="button" class="text-btn" @click="removeSectionItem(section, index)">删除</button>
+              </div>
+              <h4>{{ protocol.name }}</h4>
+              <p>{{ protocol.description }}</p>
+              <div v-if="protocol.examples?.length" class="tags">
+                <span v-for="example in protocol.examples" :key="example" class="tag">
+                  {{ example }}
+                </span>
+              </div>
+            </template>
           </article>
         </div>
 
         <div v-else-if="section.id === 'devices'" class="item-grid">
-          <article v-for="device in layer.devices" :key="device.name" class="info-item">
-            <h4>{{ device.name }}</h4>
-            <p>{{ device.role }}</p>
+          <article v-for="(device, index) in layer.devices" :key="`${device.name}-${index}`" class="info-item">
+            <template v-if="editingItemKey === itemKey(section.id, index)">
+              <form class="inline-form item-edit-form" @submit.prevent="saveSectionItem(section, index)">
+                <input v-model.trim="forms.item.name" type="text" placeholder="设备/组件名称" />
+                <textarea v-model.trim="forms.item.role" rows="2" placeholder="作用"></textarea>
+                <div class="form-actions">
+                  <button type="submit" :disabled="submitting">保存</button>
+                  <button type="button" class="secondary-btn" @click="cancelItemEdit">取消</button>
+                </div>
+              </form>
+            </template>
+            <template v-else>
+              <div class="card-toolbar" v-if="!isBuiltin">
+                <button type="button" class="text-btn" @click="startSectionItemEdit(section, index, device)">编辑</button>
+                <button type="button" class="text-btn" @click="removeSectionItem(section, index)">删除</button>
+              </div>
+              <h4>{{ device.name }}</h4>
+              <p>{{ device.role }}</p>
+            </template>
           </article>
         </div>
 
@@ -56,64 +131,142 @@
           </div>
           <div class="field-list">
             <span
-              v-for="field in layer.encapsulation.headerFields"
-              :key="field"
+              v-for="(field, index) in layer.encapsulation.headerFields"
+              :key="`${field}-${index}`"
               class="field-chip"
             >
               {{ field }}
+              <button v-if="!isBuiltin" type="button" @click="removeHeaderField(index)">×</button>
             </span>
           </div>
           <p class="next-layer">向下交付：{{ layer.encapsulation.nextLayer }}</p>
-
-          <form v-if="!isBuiltin" class="inline-form compact" @submit.prevent="addHeaderField">
-            <input v-model.trim="forms.headerField.field" type="text" placeholder="新增封装字段" />
-            <button type="submit" :disabled="submitting">添加字段</button>
-          </form>
         </div>
 
         <div v-else-if="section.id === 'collaboration'" class="collaboration-list">
-          <div v-for="item in layer.collaboration" :key="item.targetLayer" class="collaboration-item">
-            <strong>{{ item.targetLayer }}</strong>
-            <p>{{ item.description }}</p>
+          <div v-for="(item, index) in layer.collaboration" :key="`${item.targetLayer}-${index}`" class="collaboration-item">
+            <template v-if="editingItemKey === itemKey(section.id, index)">
+              <form class="inline-form item-edit-form" @submit.prevent="saveSectionItem(section, index)">
+                <input v-model.trim="forms.item.targetLayer" type="text" placeholder="目标层级" />
+                <textarea v-model.trim="forms.item.description" rows="2" placeholder="协作描述"></textarea>
+                <div class="form-actions">
+                  <button type="submit" :disabled="submitting">保存</button>
+                  <button type="button" class="secondary-btn" @click="cancelItemEdit">取消</button>
+                </div>
+              </form>
+            </template>
+            <template v-else>
+              <div class="card-toolbar" v-if="!isBuiltin">
+                <button type="button" class="text-btn" @click="startSectionItemEdit(section, index, item)">编辑</button>
+                <button type="button" class="text-btn" @click="removeSectionItem(section, index)">删除</button>
+              </div>
+              <strong>{{ item.targetLayer }}</strong>
+              <p>{{ item.description }}</p>
+            </template>
           </div>
         </div>
 
-        <form v-if="!isBuiltin && section.id !== 'encapsulation'" class="inline-form" @submit.prevent="addSectionItem(section.id)">
-          <template v-if="section.id === 'concepts'">
-            <input v-model.trim="forms.concepts.title" type="text" placeholder="概念标题" />
-            <textarea v-model.trim="forms.concepts.description" rows="2" placeholder="概念描述"></textarea>
+        <div v-else-if="section.custom" class="item-grid">
+          <article v-for="(item, index) in section.items" :key="`${item.title}-${index}`" class="info-item">
+            <template v-if="editingItemKey === itemKey(section.id, index)">
+              <form class="inline-form item-edit-form" @submit.prevent="saveCustomSectionItem(section, index)">
+                <input v-model.trim="forms.item.title" type="text" placeholder="卡片标题" />
+                <textarea v-model.trim="forms.item.description" rows="2" placeholder="卡片描述"></textarea>
+                <div class="form-actions">
+                  <button type="submit" :disabled="submitting">保存</button>
+                  <button type="button" class="secondary-btn" @click="cancelItemEdit">取消</button>
+                </div>
+              </form>
+            </template>
+            <template v-else>
+              <div class="card-toolbar" v-if="!isBuiltin">
+                <button type="button" class="text-btn" @click="startCustomItemEdit(section, index, item)">编辑</button>
+                <button type="button" class="text-btn" @click="removeCustomSectionItem(section, index)">删除</button>
+              </div>
+              <h4>{{ item.title }}</h4>
+              <p>{{ item.description }}</p>
+            </template>
+          </article>
+        </div>
+
+        <form v-if="itemAddingSection === section.id && section.id !== 'encapsulation'" class="inline-form add-item-form" @submit.prevent="addItem(section)">
+          <template v-for="field in section.fields" :key="field.key">
+            <textarea
+              v-if="field.type === 'textarea'"
+              v-model.trim="forms[section.formKey][field.key]"
+              :rows="field.rows || 2"
+              :placeholder="field.placeholder"
+            ></textarea>
+            <input
+              v-else
+              v-model.trim="forms[section.formKey][field.key]"
+              type="text"
+              :placeholder="field.placeholder"
+            />
           </template>
 
-          <template v-else-if="section.id === 'protocols'">
-            <input v-model.trim="forms.protocols.name" type="text" placeholder="协议名称" />
-            <textarea v-model.trim="forms.protocols.description" rows="2" placeholder="协议描述"></textarea>
-            <input v-model.trim="forms.protocols.examples" type="text" placeholder="示例，用逗号分隔" />
-          </template>
-
-          <template v-else-if="section.id === 'devices'">
-            <input v-model.trim="forms.devices.name" type="text" placeholder="设备/组件名称" />
-            <textarea v-model.trim="forms.devices.role" rows="2" placeholder="作用"></textarea>
-          </template>
-
-          <template v-else-if="section.id === 'collaboration'">
-            <input v-model.trim="forms.collaboration.targetLayer" type="text" placeholder="目标层级" />
-            <textarea v-model.trim="forms.collaboration.description" rows="2" placeholder="协作描述"></textarea>
-          </template>
-
-          <button type="submit" :disabled="submitting">添加{{ section.title }}</button>
+          <div class="form-actions">
+            <button type="submit" :disabled="submitting">添加{{ section.title }}</button>
+            <button type="button" class="secondary-btn" @click="itemAddingSection = ''">取消</button>
+          </div>
         </form>
+
+        <form v-if="itemAddingSection === section.id && section.id === 'encapsulation'" class="inline-form add-item-form" @submit.prevent="addHeaderField">
+          <input v-model.trim="forms.headerField.field" type="text" placeholder="新增封装字段" />
+          <div class="form-actions">
+            <button type="submit" :disabled="submitting">添加字段</button>
+            <button type="button" class="secondary-btn" @click="itemAddingSection = ''">取消</button>
+          </div>
+        </form>
+
+        <button
+          v-if="!isBuiltin"
+          type="button"
+          class="section-add-btn"
+          aria-label="添加卡片内容"
+          @click="startAddItem(section)"
+        >
+          +
+        </button>
 
         <p v-if="error && activeSection === section.id" class="error-text">{{ error }}</p>
       </div>
     </section>
+    <form v-if="sectionCreating && !isBuiltin" class="floating-section-form" @submit.prevent="createSection">
+      <input v-model.trim="forms.section.title" type="text" placeholder="新增 section-card 标题" />
+      <div class="form-actions">
+        <button type="submit" :disabled="submitting">添加</button>
+        <button type="button" class="secondary-btn" @click="sectionCreating = false">取消</button>
+      </div>
+      <p v-if="error && activeSection === 'new-section'" class="error-text">{{ error }}</p>
+    </form>
+
+    <button
+      v-if="!isBuiltin"
+      type="button"
+      class="floating-section-btn"
+      aria-label="添加 section-card"
+      @click="sectionCreating = true"
+    >
+      +
+    </button>
   </div>
 </template>
 
 <script setup>
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
+import { KnowledgePageModel } from '../models/knowledgePageModel.js'
 import {
+  addKnowledgeLayerCustomSectionItem,
   addKnowledgeLayerHeaderField,
   addKnowledgeLayerItem,
+  createKnowledgeLayerSection,
+  deleteKnowledgeLayerCustomSectionItem,
+  deleteKnowledgeLayerHeaderField,
+  deleteKnowledgeLayerItem,
+  deleteKnowledgeLayerSection,
+  updateKnowledgeLayerCustomSectionItem,
+  updateKnowledgeLayerItem,
+  updateKnowledgeLayerSection,
   updateKnowledgeLibraryLayer
 } from '../services/knowledgeApi.js'
 
@@ -134,13 +287,8 @@ const props = defineProps({
 
 const emit = defineEmits(['layer-updated'])
 
-const sections = [
-  { id: 'concepts', title: '核心概念' },
-  { id: 'protocols', title: '典型协议' },
-  { id: 'devices', title: '相关设备/组件' },
-  { id: 'encapsulation', title: '数据封装' },
-  { id: 'collaboration', title: '层间协作关系' }
-]
+const pageModel = computed(() => KnowledgePageModel.fromLayer(props.layer, { isBuiltin: props.isBuiltin }))
+const renderedSections = computed(() => pageModel.value.sections)
 
 const expanded = reactive({
   concepts: true,
@@ -150,92 +298,216 @@ const expanded = reactive({
   collaboration: true
 })
 
+const createEmptySectionForms = () => renderedSections.value.reduce((nextForms, section) => {
+  if (!section.custom && section.id !== 'encapsulation') {
+    nextForms[section.id] = section.createEmptyForm()
+  }
+  return nextForms
+}, {})
+
 const forms = reactive({
-  concepts: { title: '', description: '' },
-  protocols: { name: '', description: '', examples: '' },
-  devices: { name: '', role: '' },
-  collaboration: { targetLayer: '', description: '' },
+  summary: { title: '', summary: '' },
+  ...createEmptySectionForms(),
   encapsulation: { pdu: '', nextLayer: '' },
-  headerField: { field: '' }
+  headerField: { field: '' },
+  section: { title: '' },
+  sectionEdit: { title: '' },
+  customItem: { title: '', description: '' },
+  item: {}
 })
 const submitting = ref(false)
 const error = ref('')
 const activeSection = ref('')
+const summaryEditing = ref(false)
+const sectionEditing = ref('')
+const sectionCreating = ref(false)
+const itemAddingSection = ref('')
+const editingItemKey = ref('')
 
 const resetForms = () => {
-  forms.concepts = { title: '', description: '' }
-  forms.protocols = { name: '', description: '', examples: '' }
-  forms.devices = { name: '', role: '' }
-  forms.collaboration = { targetLayer: '', description: '' }
+  forms.summary = {
+    title: props.layer.title || '',
+    summary: props.layer.summary || ''
+  }
+  Object.assign(forms, createEmptySectionForms())
   forms.encapsulation = {
     pdu: props.layer.encapsulation?.pdu || '',
     nextLayer: props.layer.encapsulation?.nextLayer || ''
   }
   forms.headerField = { field: '' }
+  forms.section = { title: '' }
+  forms.sectionEdit = { title: '' }
+  forms.customItem = { title: '', description: '' }
+  forms.item = {}
 }
 
-const sectionPayload = section => {
-  if (section === 'protocols') {
-    return {
-      name: forms.protocols.name,
-      description: forms.protocols.description,
-      examples: forms.protocols.examples.split(/[，,\n]/).map(example => example.trim()).filter(Boolean)
-    }
-  }
+const sectionPayload = section => section.createPayload(forms[section.formKey])
 
-  return { ...forms[section] }
-}
+const editPayload = section => section.createPayload(forms.item)
 
-const addSectionItem = async section => {
+const itemKey = (sectionId, index) => `${sectionId}:${index}`
+
+const withSubmit = async (section, fallbackMessage, action) => {
   activeSection.value = section
   error.value = ''
   submitting.value = true
 
   try {
-    const layer = await addKnowledgeLayerItem(props.libraryId, props.layer.id, section, sectionPayload(section))
+    const layer = await action()
     emit('layer-updated', layer)
-    resetForms()
+    return layer
   } catch (err) {
-    error.value = err.message || '添加知识字段失败'
+    error.value = err.message || fallbackMessage
+    return null
   } finally {
     submitting.value = false
   }
 }
 
-const updateEncapsulation = async () => {
-  activeSection.value = 'encapsulation'
-  error.value = ''
-  submitting.value = true
+const addItem = async section => {
+  if (section.custom) {
+    const layer = await withSubmit(section.id, '添加卡片失败', () =>
+      addKnowledgeLayerCustomSectionItem(props.libraryId, props.layer.id, section.id, section.createPayload(forms.customItem))
+    )
+    if (layer) {
+      itemAddingSection.value = ''
+      forms.customItem = { title: '', description: '' }
+    }
+    return
+  }
 
-  try {
-    const layer = await updateKnowledgeLibraryLayer(props.libraryId, props.layer.id, {
+  const layer = await withSubmit(section.id, '添加知识字段失败', () =>
+    addKnowledgeLayerItem(props.libraryId, props.layer.id, section.id, sectionPayload(section))
+  )
+  if (layer) {
+    itemAddingSection.value = ''
+    resetForms()
+  }
+}
+
+const updateEncapsulation = async () => {
+  await withSubmit('encapsulation', '更新封装信息失败', () =>
+    updateKnowledgeLibraryLayer(props.libraryId, props.layer.id, {
       encapsulation: {
         pdu: forms.encapsulation.pdu,
         nextLayer: forms.encapsulation.nextLayer
       }
     })
-    emit('layer-updated', layer)
-  } catch (err) {
-    error.value = err.message || '更新封装信息失败'
-  } finally {
-    submitting.value = false
-  }
+  )
 }
 
 const addHeaderField = async () => {
-  activeSection.value = 'encapsulation'
-  error.value = ''
-  submitting.value = true
-
-  try {
-    const layer = await addKnowledgeLayerHeaderField(props.libraryId, props.layer.id, forms.headerField.field)
-    emit('layer-updated', layer)
+  const layer = await withSubmit('encapsulation', '添加封装字段失败', () =>
+    addKnowledgeLayerHeaderField(props.libraryId, props.layer.id, forms.headerField.field)
+  )
+  if (layer) {
+    itemAddingSection.value = ''
     forms.headerField.field = ''
-  } catch (err) {
-    error.value = err.message || '添加封装字段失败'
-  } finally {
-    submitting.value = false
   }
+}
+
+const removeHeaderField = async index => {
+  await withSubmit('encapsulation', '删除封装字段失败', () =>
+    deleteKnowledgeLayerHeaderField(props.libraryId, props.layer.id, index)
+  )
+}
+
+const startSummaryEdit = () => {
+  summaryEditing.value = true
+  forms.summary = { title: props.layer.title, summary: props.layer.summary }
+}
+
+const cancelSummaryEdit = () => {
+  summaryEditing.value = false
+  forms.summary = { title: props.layer.title, summary: props.layer.summary }
+}
+
+const updateSummary = async () => {
+  const layer = await withSubmit('summary', '更新摘要失败', () =>
+    updateKnowledgeLibraryLayer(props.libraryId, props.layer.id, { ...forms.summary })
+  )
+  if (layer) summaryEditing.value = false
+}
+
+const createSection = async () => {
+  const layer = await withSubmit('new-section', '添加 section-card 失败', () =>
+    createKnowledgeLayerSection(props.libraryId, props.layer.id, { ...forms.section })
+  )
+  if (layer) {
+    forms.section.title = ''
+    sectionCreating.value = false
+    const nextSection = layer.customSections?.at(-1)
+    if (nextSection) expanded[nextSection.id] = true
+  }
+}
+
+const startSectionEdit = section => {
+  sectionEditing.value = section.id
+  forms.sectionEdit.title = section.title
+}
+
+const saveSectionTitle = async section => {
+  const layer = await withSubmit(section.id, '修改 section-card 失败', () =>
+    updateKnowledgeLayerSection(props.libraryId, props.layer.id, section.id, { title: forms.sectionEdit.title })
+  )
+  if (layer) sectionEditing.value = ''
+}
+
+const removeSection = async section => {
+  if (!window.confirm(`确认删除“${section.title}”？`)) return
+  await withSubmit(section.id, '删除 section-card 失败', () =>
+    deleteKnowledgeLayerSection(props.libraryId, props.layer.id, section.id)
+  )
+}
+
+const startAddItem = section => {
+  itemAddingSection.value = itemAddingSection.value === section.id ? '' : section.id
+  if (section.id === 'encapsulation') {
+    forms.headerField = { field: '' }
+    return
+  }
+  forms[section.formKey] = section.createEmptyForm()
+}
+
+const startSectionItemEdit = (section, index, item) => {
+  editingItemKey.value = itemKey(section.id, index)
+  forms.item = section.createFormFromItem(item)
+}
+
+const startCustomItemEdit = (section, index, item) => {
+  editingItemKey.value = itemKey(section.id, index)
+  forms.item = section.createFormFromItem(item)
+}
+
+const cancelItemEdit = () => {
+  editingItemKey.value = ''
+  forms.item = {}
+}
+
+const saveSectionItem = async (section, index) => {
+  const layer = await withSubmit(section.id, '修改知识卡片失败', () =>
+    updateKnowledgeLayerItem(props.libraryId, props.layer.id, section.id, index, editPayload(section))
+  )
+  if (layer) cancelItemEdit()
+}
+
+const removeSectionItem = async (section, index) => {
+  await withSubmit(section.id, '删除知识卡片失败', () =>
+    deleteKnowledgeLayerItem(props.libraryId, props.layer.id, section.id, index)
+  )
+}
+
+const saveCustomSectionItem = async (section, index) => {
+  const layer = await withSubmit(section.id, '修改卡片失败', () =>
+    updateKnowledgeLayerCustomSectionItem(props.libraryId, props.layer.id, section.id, index, section.createPayload(forms.item))
+  )
+  if (layer) cancelItemEdit()
+}
+
+const removeCustomSectionItem = async (section, index) => {
+  await withSubmit(section.id, '删除卡片失败', () =>
+    deleteKnowledgeLayerCustomSectionItem(props.libraryId, props.layer.id, section.id, index)
+  )
 }
 
 const toggle = (id) => {
@@ -243,18 +515,36 @@ const toggle = (id) => {
 }
 
 watch(() => props.layer.id, () => {
-  sections.forEach(section => {
+  renderedSections.value.forEach(section => {
     expanded[section.id] = true
   })
   error.value = ''
   activeSection.value = ''
+  summaryEditing.value = false
+  sectionEditing.value = ''
+  sectionCreating.value = false
+  itemAddingSection.value = ''
+  editingItemKey.value = ''
   resetForms()
 })
+
+watch(() => props.layer.customSections, sections => {
+  ;(sections || []).forEach(section => {
+    if (expanded[section.id] === undefined) expanded[section.id] = true
+  })
+}, { immediate: true })
 
 watch(() => props.layer.encapsulation, () => {
   forms.encapsulation = {
     pdu: props.layer.encapsulation?.pdu || '',
     nextLayer: props.layer.encapsulation?.nextLayer || ''
+  }
+}, { immediate: true })
+
+watch(() => [props.layer.title, props.layer.summary], () => {
+  forms.summary = {
+    title: props.layer.title || '',
+    summary: props.layer.summary || ''
   }
 }, { immediate: true })
 </script>
@@ -277,13 +567,6 @@ watch(() => props.layer.encapsulation, () => {
   padding: var(--spacing);
 }
 
-.layer-order {
-  font-size: 12px;
-  color: var(--primary-color);
-  margin-bottom: 8px;
-  font-weight: 500;
-}
-
 .summary-card h3 {
   font-size: 22px;
   font-weight: 600;
@@ -296,11 +579,20 @@ watch(() => props.layer.encapsulation, () => {
   line-height: 1.5;
 }
 
+.section-card {
+  position: relative;
+}
+
+.section-header-row {
+  display: flex;
+  background: var(--subtle-bg-color);
+}
+
 .section-header {
-  width: 100%;
+  flex: 1;
   padding: 16px var(--spacing);
   border: none;
-  background: var(--subtle-bg-color);
+  background: transparent;
   color: var(--text-color);
   display: flex;
   justify-content: space-between;
@@ -312,6 +604,37 @@ watch(() => props.layer.encapsulation, () => {
   line-height: 1.5;
 }
 
+.section-actions,
+.card-toolbar,
+.form-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.section-actions {
+  padding-right: 16px;
+}
+
+.section-actions button,
+.text-btn,
+.secondary-btn {
+  border: 1px solid var(--border-color);
+  background: var(--bg-color);
+  color: var(--muted-text-color);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  font-family: var(--font-family);
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 4px 8px;
+}
+
+.card-toolbar {
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
 .toggle-mark {
   color: var(--primary-color);
   font-size: 20px;
@@ -319,7 +642,9 @@ watch(() => props.layer.encapsulation, () => {
 }
 
 .section-body {
+  position: relative;
   padding: var(--spacing);
+  padding-bottom: 56px;
   border-top: 1px solid var(--border-color);
 }
 
@@ -365,6 +690,14 @@ watch(() => props.layer.encapsulation, () => {
   color: var(--primary-color);
   border-radius: var(--border-radius);
   font-size: 12px;
+}
+
+.field-chip button {
+  margin-left: 6px;
+  border: none;
+  background: transparent;
+  color: var(--primary-color);
+  cursor: pointer;
 }
 
 .encapsulation {
@@ -417,7 +750,16 @@ watch(() => props.layer.encapsulation, () => {
   border-top: 1px solid var(--border-color);
 }
 
-.inline-form.compact {
+.summary-form,
+.item-edit-form,
+.compact-edit {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.inline-form.compact,
+.compact-edit {
   flex-direction: row;
   align-items: flex-start;
 }
@@ -453,9 +795,106 @@ watch(() => props.layer.encapsulation, () => {
   line-height: 1.5;
 }
 
+.inline-form button.secondary-btn,
+.secondary-btn {
+  background: var(--bg-color);
+  color: var(--muted-text-color);
+  border-color: var(--border-color);
+}
+
 .inline-form button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.section-add-btn,
+.floating-section-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-color);
+  color: var(--primary-color);
+  cursor: pointer;
+  font-family: var(--font-family);
+  line-height: 1;
+}
+
+.section-add-btn {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  width: 32px;
+  height: 32px;
+  background: var(--active-bg-color);
+  opacity: 0.78;
+  font-size: 18px;
+}
+
+.section-add-btn:hover,
+.floating-section-btn:hover {
+  border-color: var(--primary-color);
+  opacity: 1;
+}
+
+.floating-section-btn {
+  position: fixed;
+  right: 32px;
+  bottom: 32px;
+  z-index: 20;
+  width: 52px;
+  height: 52px;
+  background: var(--primary-color);
+  color: white;
+  font-size: 28px;
+}
+
+.floating-section-form {
+  position: fixed;
+  right: 32px;
+  bottom: 96px;
+  z-index: 20;
+  width: min(320px, calc(100vw - 64px));
+  padding: 16px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  background: var(--bg-color);
+}
+
+.add-item-form {
+  margin-bottom: 16px;
+}
+
+.floating-section-form input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-color);
+  font-family: var(--font-family);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.floating-section-form .form-actions {
+  margin-top: 10px;
+}
+
+.floating-section-form button {
+  padding: 8px 14px;
+  border: 1px solid var(--primary-color);
+  border-radius: var(--border-radius);
+  background: var(--primary-color);
+  color: white;
+  cursor: pointer;
+  font-family: var(--font-family);
+}
+
+.floating-section-form button.secondary-btn {
+  background: var(--bg-color);
+  color: var(--muted-text-color);
+  border-color: var(--border-color);
 }
 
 .error-text {

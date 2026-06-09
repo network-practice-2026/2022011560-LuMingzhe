@@ -27,7 +27,11 @@
         v-if="tabs.length"
         :tabs="tabs"
         :active-id="activeTab"
+        :is-builtin="Boolean(currentItem?.isBuiltin)"
         @select="activeTab = $event"
+        @add-tab="handleAddTab"
+        @rename-tab="handleRenameTab"
+        @delete-tab="handleDeleteTab"
       />
 
       <div v-if="loading" class="state-box">加载中...</div>
@@ -70,11 +74,14 @@ import KnowledgeLayerView from '../components/KnowledgeLayerView.vue'
 import KnowledgeGraphView from '../components/KnowledgeGraphView.vue'
 import CreateKnowledgeLibraryModal from '../components/CreateKnowledgeLibraryModal.vue'
 import {
+  createKnowledgeLibraryTab,
+  deleteKnowledgeLibraryTab,
   fetchKnowledgeLibraries,
   fetchKnowledgeLibraryGraph,
   fetchKnowledgeLibraryLayer,
   fetchKnowledgeLibraryLayers,
-  fetchKnowledgeLibraryTabs
+  fetchKnowledgeLibraryTabs,
+  updateKnowledgeLibraryTab
 } from '../services/knowledgeApi.js'
 
 const graphTab = { id: 'graph', title: '知识图谱' }
@@ -171,6 +178,56 @@ const handleLibraryCreated = library => {
   currentId.value = library.id
 }
 
+const handleAddTab = async () => {
+  const title = window.prompt('请输入新页面标题')?.trim()
+  if (!title || !currentId.value) return
+
+  try {
+    const { tab, layer } = await createKnowledgeLibraryTab(currentId.value, { title })
+    const graph = tabs.value.find(tab => tab.id === 'graph')
+    tabs.value = graph
+      ? [...tabs.value.filter(tab => tab.id !== 'graph'), tab, graph]
+      : [...tabs.value, tab]
+    layers.value = [...layers.value, { id: layer.id, title: layer.title, order: layer.order, summary: layer.summary }]
+    layerCache.value = { ...layerCache.value, [layer.id]: layer }
+    activeTab.value = layer.id
+  } catch (err) {
+    error.value = err.message || '添加知识页面失败'
+  }
+}
+
+const handleRenameTab = async tab => {
+  const title = window.prompt('请输入页面标题', tab.title)?.trim()
+  if (!title || title === tab.title || !currentId.value) return
+
+  try {
+    const { tab: nextTab, layer } = await updateKnowledgeLibraryTab(currentId.value, tab.id, { title })
+    tabs.value = tabs.value.map(item => item.id === tab.id ? { ...item, title: nextTab.title } : item)
+    handleLayerUpdated(layer)
+  } catch (err) {
+    error.value = err.message || '修改知识页面失败'
+  }
+}
+
+const handleDeleteTab = async tab => {
+  if (!currentId.value || !window.confirm(`确认删除“${tab.title}”？`)) return
+
+  try {
+    await deleteKnowledgeLibraryTab(currentId.value, tab.id)
+    const index = tabs.value.findIndex(item => item.id === tab.id)
+    tabs.value = tabs.value.filter(item => item.id !== tab.id)
+    layers.value = layers.value.filter(item => item.id !== tab.id)
+    const { [tab.id]: _removed, ...nextCache } = layerCache.value
+    layerCache.value = nextCache
+
+    if (activeTab.value === tab.id) {
+      activeTab.value = tabs.value[Math.max(0, index - 1)]?.id || 'graph'
+    }
+  } catch (err) {
+    error.value = err.message || '删除知识页面失败'
+  }
+}
+
 const handleLayerUpdated = layer => {
   layerCache.value = {
     ...layerCache.value,
@@ -178,6 +235,10 @@ const handleLayerUpdated = layer => {
   }
   layers.value = layers.value.map(item => item.id === activeTab.value
     ? { ...item, title: layer.title, summary: layer.summary }
+    : item
+  )
+  tabs.value = tabs.value.map(item => item.id === activeTab.value
+    ? { ...item, title: layer.title }
     : item
   )
 }

@@ -1,13 +1,28 @@
 <template>
   <div class="knowledge-tabs">
-    <button
+    <div
       v-for="tab in tabs"
       :key="tab.id"
-      class="tab-btn"
+      class="tab-item"
       :class="{ active: activeId === tab.id }"
-      @click="$emit('select', tab.id)"
     >
-      {{ tab.title }}
+      <button class="tab-btn" @click="$emit('select', tab.id)">
+        {{ tab.title }}
+      </button>
+      <div v-if="!isBuiltin && tab.id !== 'graph'" class="tab-actions">
+        <button type="button" aria-label="重命名页面" @click.stop="$emit('rename-tab', tab)">编辑</button>
+        <button type="button" aria-label="删除页面" @click.stop="$emit('delete-tab', tab)">删除</button>
+      </div>
+    </div>
+
+    <button
+      v-if="!isBuiltin"
+      class="add-tab-btn"
+      type="button"
+      aria-label="添加新的知识页面"
+      @click="$emit('add-tab')"
+    >
+      +
     </button>
   </div>
 </template>
@@ -21,10 +36,14 @@ defineProps({
   activeId: {
     type: String,
     required: true
+  },
+  isBuiltin: {
+    type: Boolean,
+    default: true
   }
 })
 
-defineEmits(['select'])
+defineEmits(['select', 'add-tab', 'rename-tab', 'delete-tab'])
 </script>
 
 <style scoped>
@@ -37,27 +56,78 @@ defineEmits(['select'])
   margin-bottom: var(--spacing);
 }
 
-.tab-btn {
-  padding: 8px 16px;
+.tab-item {
+  display: inline-flex;
+  align-items: center;
   border: 1px solid var(--border-color);
-  background: var(--bg-color);
-  color: var(--text-color);
   border-radius: var(--border-radius);
-  cursor: pointer;
-  font-family: var(--font-family);
-  font-size: 14px;
-  line-height: 1.5;
+  background: var(--bg-color);
+  overflow: hidden;
   transition: border-color 0.15s, color 0.15s, background-color 0.15s;
 }
 
-.tab-btn:hover {
+.tab-item:hover {
   border-color: var(--primary-color);
-  color: var(--primary-color);
 }
 
-.tab-btn.active {
+.tab-item.active {
   background: var(--primary-color);
   border-color: var(--primary-color);
   color: white;
+}
+
+.tab-btn,
+.add-tab-btn,
+.tab-actions button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-family: var(--font-family);
+  line-height: 1.5;
+}
+
+.tab-btn {
+  padding: 8px 16px;
+  color: var(--text-color);
+  font-size: 14px;
+}
+
+.tab-item:hover .tab-btn {
+  color: var(--primary-color);
+}
+
+.tab-item.active .tab-btn,
+.tab-item.active .tab-actions button {
+  color: white;
+}
+
+.tab-actions {
+  display: flex;
+  gap: 2px;
+  padding-right: 6px;
+}
+
+.tab-actions button {
+  padding: 4px 6px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.tab-actions button:hover {
+  opacity: 1;
+}
+
+.add-tab-btn {
+  min-width: 38px;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--primary-color);
+  font-size: 18px;
+}
+
+.add-tab-btn:hover {
+  border-color: var(--primary-color);
+  background: var(--active-bg-color);
 }
 </style>

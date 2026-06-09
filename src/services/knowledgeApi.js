@@ -29,6 +29,12 @@ function patchJson(url, body) {
   })
 }
 
+function deleteJson(url) {
+  return requestJson(url, {
+    method: 'DELETE'
+  })
+}
+
 export async function fetchKnowledgeTopics() {
   const data = await requestJson('/api/knowledge/topics')
   return data.topics || []
@@ -79,6 +85,18 @@ export async function createKnowledgeLibrary(payload) {
   return data.library
 }
 
+export async function createKnowledgeLibraryTab(libraryId, payload) {
+  return postJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/tabs`, payload)
+}
+
+export async function updateKnowledgeLibraryTab(libraryId, tabId, patch) {
+  return patchJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/tabs/${encodeURIComponent(tabId)}`, patch)
+}
+
+export async function deleteKnowledgeLibraryTab(libraryId, tabId) {
+  return deleteJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/tabs/${encodeURIComponent(tabId)}`)
+}
+
 export async function updateKnowledgeLibraryLayer(libraryId, layerId, patch) {
   const data = await patchJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}`, patch)
   return data.layer
@@ -89,7 +107,52 @@ export async function addKnowledgeLayerItem(libraryId, layerId, section, item) {
   return data.layer
 }
 
+export async function updateKnowledgeLayerItem(libraryId, layerId, section, itemIndex, patch) {
+  const data = await patchJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}/${encodeURIComponent(section)}/${encodeURIComponent(itemIndex)}`, patch)
+  return data.layer
+}
+
+export async function deleteKnowledgeLayerItem(libraryId, layerId, section, itemIndex) {
+  const data = await deleteJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}/${encodeURIComponent(section)}/${encodeURIComponent(itemIndex)}`)
+  return data.layer
+}
+
 export async function addKnowledgeLayerHeaderField(libraryId, layerId, field) {
   const data = await postJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}/encapsulation/header-fields`, { field })
+  return data.layer
+}
+
+export async function deleteKnowledgeLayerHeaderField(libraryId, layerId, itemIndex) {
+  const data = await deleteJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}/encapsulation/header-fields/${encodeURIComponent(itemIndex)}`)
+  return data.layer
+}
+
+export async function createKnowledgeLayerSection(libraryId, layerId, payload) {
+  const data = await postJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}/sections`, payload)
+  return data.layer
+}
+
+export async function updateKnowledgeLayerSection(libraryId, layerId, sectionId, patch) {
+  const data = await patchJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}/sections/${encodeURIComponent(sectionId)}`, patch)
+  return data.layer
+}
+
+export async function deleteKnowledgeLayerSection(libraryId, layerId, sectionId) {
+  const data = await deleteJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}/sections/${encodeURIComponent(sectionId)}`)
+  return data.layer
+}
+
+export async function addKnowledgeLayerCustomSectionItem(libraryId, layerId, sectionId, item) {
+  const data = await postJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}/sections/${encodeURIComponent(sectionId)}/items`, item)
+  return data.layer
+}
+
+export async function updateKnowledgeLayerCustomSectionItem(libraryId, layerId, sectionId, itemIndex, patch) {
+  const data = await patchJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}/sections/${encodeURIComponent(sectionId)}/items/${encodeURIComponent(itemIndex)}`, patch)
+  return data.layer
+}
+
+export async function deleteKnowledgeLayerCustomSectionItem(libraryId, layerId, sectionId, itemIndex) {
+  const data = await deleteJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}/sections/${encodeURIComponent(sectionId)}/items/${encodeURIComponent(itemIndex)}`)
   return data.layer
 }
