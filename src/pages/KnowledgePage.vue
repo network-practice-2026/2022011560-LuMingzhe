@@ -45,7 +45,10 @@
 
       <KnowledgeLayerView
         v-else-if="currentLayer"
+        :library-id="currentId"
         :layer="currentLayer"
+        :is-builtin="Boolean(currentItem?.isBuiltin)"
+        @layer-updated="handleLayerUpdated"
       />
 
       <div v-else class="state-box">暂无知识库数据</div>
@@ -166,6 +169,17 @@ const handleLibraryCreated = library => {
   showCreateModal.value = false
   knowledgeItems.value = [...knowledgeItems.value, library]
   currentId.value = library.id
+}
+
+const handleLayerUpdated = layer => {
+  layerCache.value = {
+    ...layerCache.value,
+    [activeTab.value]: layer
+  }
+  layers.value = layers.value.map(item => item.id === activeTab.value
+    ? { ...item, title: layer.title, summary: layer.summary }
+    : item
+  )
 }
 
 watch(activeTab, () => {

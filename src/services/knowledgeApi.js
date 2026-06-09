@@ -19,6 +19,16 @@ function postJson(url, body) {
   })
 }
 
+function patchJson(url, body) {
+  return requestJson(url, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(body)
+  })
+}
+
 export async function fetchKnowledgeTopics() {
   const data = await requestJson('/api/knowledge/topics')
   return data.topics || []
@@ -67,4 +77,19 @@ export async function fetchKnowledgeLibraryGraph(libraryId) {
 export async function createKnowledgeLibrary(payload) {
   const data = await postJson('/api/knowledge/libraries', payload)
   return data.library
+}
+
+export async function updateKnowledgeLibraryLayer(libraryId, layerId, patch) {
+  const data = await patchJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}`, patch)
+  return data.layer
+}
+
+export async function addKnowledgeLayerItem(libraryId, layerId, section, item) {
+  const data = await postJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}/${encodeURIComponent(section)}`, item)
+  return data.layer
+}
+
+export async function addKnowledgeLayerHeaderField(libraryId, layerId, field) {
+  const data = await postJson(`/api/knowledge/libraries/${encodeURIComponent(libraryId)}/layers/${encodeURIComponent(layerId)}/encapsulation/header-fields`, { field })
+  return data.layer
 }

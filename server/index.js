@@ -6,6 +6,8 @@ const {
   getKnowledgeLibraryLayer,
   getKnowledgeLibraryGraph,
   createKnowledgeLibrary,
+  updateKnowledgeLibraryLayer,
+  addKnowledgeLayerSectionItem,
   getKnowledgeTopics,
   getLayers,
   getLayer,
@@ -20,6 +22,10 @@ const app = express()
 const port = process.env.PORT || 3000
 
 app.use(express.json())
+
+const sendKnowledgeError = (res, error) => {
+  res.status(error.status || 400).json({ error: error.message || 'Knowledge request failed' })
+}
 
 app.get('/api/protocols', (req, res) => {
   res.json({ protocols: getProtocols() })
@@ -81,6 +87,38 @@ app.get('/api/knowledge/libraries/:libraryId/layers/:layerId', (req, res) => {
   }
 
   res.json({ layer })
+})
+
+app.patch('/api/knowledge/libraries/:libraryId/layers/:layerId', (req, res) => {
+  try {
+    const layer = updateKnowledgeLibraryLayer(req.params.libraryId, req.params.layerId, req.body)
+    res.json({ layer })
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.post('/api/knowledge/libraries/:libraryId/layers/:layerId/:section', (req, res) => {
+  try {
+    const layer = addKnowledgeLayerSectionItem(req.params.libraryId, req.params.layerId, req.params.section, req.body)
+    res.status(201).json({ layer })
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.post('/api/knowledge/libraries/:libraryId/layers/:layerId/encapsulation/header-fields', (req, res) => {
+  try {
+    const layer = addKnowledgeLayerSectionItem(
+      req.params.libraryId,
+      req.params.layerId,
+      'encapsulation/header-fields',
+      req.body
+    )
+    res.status(201).json({ layer })
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
 })
 
 app.get('/api/knowledge/libraries/:libraryId/graph', (req, res) => {

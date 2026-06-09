@@ -240,6 +240,15 @@ if (simulationCount === 0) {
 
 const parseLayer = row => JSON.parse(row.data)
 
+class HttpError extends Error {
+  constructor(status, message) {
+    super(message)
+    this.status = status
+  }
+}
+
+const writableSections = new Set(['concepts', 'protocols', 'devices', 'collaboration'])
+
 const slugify = value => {
   const slug = value
     .trim()
@@ -265,7 +274,7 @@ const uniqueLibraryId = title => {
 
 const assertString = (value, field) => {
   if (typeof value !== 'string' || value.trim() === '') {
-    throw new Error(`${field} 不能为空`)
+    throw new HttpError(400, `${field} 不能为空`)
   }
 
   return value.trim()
@@ -309,6 +318,87 @@ function normalizeTabs(tabs, normalizedLayers) {
   return normalizedLayers.map(layer => ({ id: layer.id, title: layer.title, order: layer.order }))
 }
 
+function assertLibraryWritable(libraryId) {
+  const library = db.prepare('SELECT id, is_builtin AS "isBuiltin" FROM knowledge_libraries WHERE id = ?').get(libraryId)
+
+  if (!library) {
+    throw new HttpError(404, '知识库不存在')
+  }
+
+  if (library.isBuiltin) {
+    throw new HttpError(403, '内置知识库不可编辑')
+  }
+
+  return library
+}
+
+function getKnowledgeLayerRow(libraryId, id) {
+  return db.prepare(`
+    SELECT id, data
+    FROM knowledge_layers
+    WHERE library_id = ? AND (id = ? OR id = ?)
+  `).get(libraryId, id, `${libraryId}:${id}`)
+}
+
+function normalizeExamples(examples) {
+  if (examples === undefined) return []
+
+  if (!Array.isArray(examples)) {
+    throw new HttpError(400, '示例必须是数组')
+  }
+
+  return examples
+    .filter(example => typeof example === 'string')
+    .map(example => example.trim())
+    .filter(Boolean)
+}
+
+function normalizeSectionItem(section, item) {
+  if (section === 'concepts') {
+    return {
+      title: assertString(item?.title, '概念标题'),
+      description: assertString(item?.description, '概念描述')
+    }
+  }
+
+  if (section === 'protocols') {
+    return {
+      name: assertString(item?.name, '协议名称'),
+      description: assertString(item?.description, '协议描述'),
+      examples: normalizeExamples(item?.examples)
+    }
+  }
+
+  if (section === 'devices') {
+    return {
+      name: assertString(item?.name, '设备/组件名称'),
+      role: assertString(item?.role, '设备/组件作用')
+    }
+  }
+
+  if (section === 'collaboration') {
+    return {
+      targetLayer: assertString(item?.targetLayer, '目标层级'),
+      description: assertString(item?.description, '协作描述')
+    }
+  }
+
+  throw new HttpError(400, '不支持的知识字段')
+}
+
+function saveKnowledgeLayer(rowId, layer) {
+  db.prepare(`
+    UPDATE knowledge_layers
+    SET title = @title, summary = @summary, data = @data
+    WHERE id = @id
+  `).run({
+    id: rowId,
+    title: layer.title,
+    summary: layer.summary,
+    data: JSON.stringify(layer)
+  })
+}
+
 function getKnowledgeLibraries() {
   return db.prepare(`
     SELECT id, title, description, item_order AS "order", is_builtin AS "isBuiltin"
@@ -336,12 +426,75 @@ function getKnowledgeLibraryLayers(libraryId) {
 }
 
 function getKnowledgeLibraryLayer(libraryId, id) {
-  const row = db.prepare(`
-    SELECT data
-    FROM knowledge_layers
-    WHERE library_id = ? AND (id = ? OR id = ?)
-  `).get(libraryId, id, `${libraryId}:${id}`)
+  const row = getKnowledgeLayerRow(libraryId, id)
   return row ? parseLayer(row) : null
+}
+
+function updateKnowledgeLibraryLayer(libraryId, layerId, patch) {
+  assertLibraryWritable(libraryId)
+  const row = getKnowledgeLayerRow(libraryId, layerId)
+
+  if (!row) {
+    throw new HttpError(404, '知识层级不存在')
+  }
+
+  const currentLayer = parseLayer(row)
+  const nextEncapsulation = patch?.encapsulation
+    ? {
+        ...currentLayer.encapsulation,
+        ...patch.encapsulation,
+        headerFields: Array.isArray(patch.encapsulation.headerFields)
+          ? patch.encapsulation.headerFields
+          : currentLayer.encapsulation?.headerFields
+      }
+    : currentLayer.encapsulation
+  const nextLayer = normalizeLayer({
+    ...currentLayer,
+    title: patch?.title === undefined ? currentLayer.title : assertString(patch.title, '层级标题'),
+    summary: patch?.summary === undefined ? currentLayer.summary : assertString(patch.summary, '层级摘要'),
+    encapsulation: nextEncapsulation
+  }, currentLayer.order)
+
+  saveKnowledgeLayer(row.id, nextLayer)
+  return nextLayer
+}
+
+function addKnowledgeLayerSectionItem(libraryId, layerId, section, item) {
+  assertLibraryWritable(libraryId)
+  const row = getKnowledgeLayerRow(libraryId, layerId)
+
+  if (!row) {
+    throw new HttpError(404, '知识层级不存在')
+  }
+
+  const currentLayer = parseLayer(row)
+
+  if (section === 'encapsulation/header-fields') {
+    const field = assertString(item?.field, '封装字段')
+    const nextLayer = normalizeLayer({
+      ...currentLayer,
+      encapsulation: {
+        ...currentLayer.encapsulation,
+        headerFields: [...(currentLayer.encapsulation?.headerFields || []), field]
+      }
+    }, currentLayer.order)
+
+    saveKnowledgeLayer(row.id, nextLayer)
+    return nextLayer
+  }
+
+  if (!writableSections.has(section)) {
+    throw new HttpError(400, '不支持的知识字段')
+  }
+
+  const sectionItem = normalizeSectionItem(section, item)
+  const nextLayer = normalizeLayer({
+    ...currentLayer,
+    [section]: [...(currentLayer[section] || []), sectionItem]
+  }, currentLayer.order)
+
+  saveKnowledgeLayer(row.id, nextLayer)
+  return nextLayer
 }
 
 function getKnowledgeLibraryGraph(libraryId) {
@@ -478,6 +631,8 @@ module.exports = {
   getKnowledgeLibraryLayer,
   getKnowledgeLibraryGraph,
   createKnowledgeLibrary,
+  updateKnowledgeLibraryLayer,
+  addKnowledgeLayerSectionItem,
   getKnowledgeTopics,
   getLayers,
   getLayer,

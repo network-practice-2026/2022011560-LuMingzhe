@@ -44,6 +44,12 @@
         </div>
 
         <div v-else-if="section.id === 'encapsulation'" class="encapsulation">
+          <form v-if="!isBuiltin" class="inline-form" @submit.prevent="updateEncapsulation">
+            <input v-model.trim="forms.encapsulation.pdu" type="text" placeholder="PDU 名称" />
+            <input v-model.trim="forms.encapsulation.nextLayer" type="text" placeholder="下一层" />
+            <button type="submit" :disabled="submitting">更新封装信息</button>
+          </form>
+
           <div class="pdu-card">
             <span class="pdu-label">PDU</span>
             <strong>{{ layer.encapsulation.pdu }}</strong>
@@ -58,6 +64,11 @@
             </span>
           </div>
           <p class="next-layer">向下交付：{{ layer.encapsulation.nextLayer }}</p>
+
+          <form v-if="!isBuiltin" class="inline-form compact" @submit.prevent="addHeaderField">
+            <input v-model.trim="forms.headerField.field" type="text" placeholder="新增封装字段" />
+            <button type="submit" :disabled="submitting">添加字段</button>
+          </form>
         </div>
 
         <div v-else-if="section.id === 'collaboration'" class="collaboration-list">
@@ -66,20 +77,62 @@
             <p>{{ item.description }}</p>
           </div>
         </div>
+
+        <form v-if="!isBuiltin && section.id !== 'encapsulation'" class="inline-form" @submit.prevent="addSectionItem(section.id)">
+          <template v-if="section.id === 'concepts'">
+            <input v-model.trim="forms.concepts.title" type="text" placeholder="概念标题" />
+            <textarea v-model.trim="forms.concepts.description" rows="2" placeholder="概念描述"></textarea>
+          </template>
+
+          <template v-else-if="section.id === 'protocols'">
+            <input v-model.trim="forms.protocols.name" type="text" placeholder="协议名称" />
+            <textarea v-model.trim="forms.protocols.description" rows="2" placeholder="协议描述"></textarea>
+            <input v-model.trim="forms.protocols.examples" type="text" placeholder="示例，用逗号分隔" />
+          </template>
+
+          <template v-else-if="section.id === 'devices'">
+            <input v-model.trim="forms.devices.name" type="text" placeholder="设备/组件名称" />
+            <textarea v-model.trim="forms.devices.role" rows="2" placeholder="作用"></textarea>
+          </template>
+
+          <template v-else-if="section.id === 'collaboration'">
+            <input v-model.trim="forms.collaboration.targetLayer" type="text" placeholder="目标层级" />
+            <textarea v-model.trim="forms.collaboration.description" rows="2" placeholder="协作描述"></textarea>
+          </template>
+
+          <button type="submit" :disabled="submitting">添加{{ section.title }}</button>
+        </form>
+
+        <p v-if="error && activeSection === section.id" class="error-text">{{ error }}</p>
       </div>
     </section>
   </div>
 </template>
 
 <script setup>
-import { reactive, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
+import {
+  addKnowledgeLayerHeaderField,
+  addKnowledgeLayerItem,
+  updateKnowledgeLibraryLayer
+} from '../services/knowledgeApi.js'
 
 const props = defineProps({
+  libraryId: {
+    type: String,
+    required: true
+  },
   layer: {
     type: Object,
     required: true
+  },
+  isBuiltin: {
+    type: Boolean,
+    default: true
   }
 })
+
+const emit = defineEmits(['layer-updated'])
 
 const sections = [
   { id: 'concepts', title: '核心概念' },
@@ -97,6 +150,94 @@ const expanded = reactive({
   collaboration: true
 })
 
+const forms = reactive({
+  concepts: { title: '', description: '' },
+  protocols: { name: '', description: '', examples: '' },
+  devices: { name: '', role: '' },
+  collaboration: { targetLayer: '', description: '' },
+  encapsulation: { pdu: '', nextLayer: '' },
+  headerField: { field: '' }
+})
+const submitting = ref(false)
+const error = ref('')
+const activeSection = ref('')
+
+const resetForms = () => {
+  forms.concepts = { title: '', description: '' }
+  forms.protocols = { name: '', description: '', examples: '' }
+  forms.devices = { name: '', role: '' }
+  forms.collaboration = { targetLayer: '', description: '' }
+  forms.encapsulation = {
+    pdu: props.layer.encapsulation?.pdu || '',
+    nextLayer: props.layer.encapsulation?.nextLayer || ''
+  }
+  forms.headerField = { field: '' }
+}
+
+const sectionPayload = section => {
+  if (section === 'protocols') {
+    return {
+      name: forms.protocols.name,
+      description: forms.protocols.description,
+      examples: forms.protocols.examples.split(/[，,\n]/).map(example => example.trim()).filter(Boolean)
+    }
+  }
+
+  return { ...forms[section] }
+}
+
+const addSectionItem = async section => {
+  activeSection.value = section
+  error.value = ''
+  submitting.value = true
+
+  try {
+    const layer = await addKnowledgeLayerItem(props.libraryId, props.layer.id, section, sectionPayload(section))
+    emit('layer-updated', layer)
+    resetForms()
+  } catch (err) {
+    error.value = err.message || '添加知识字段失败'
+  } finally {
+    submitting.value = false
+  }
+}
+
+const updateEncapsulation = async () => {
+  activeSection.value = 'encapsulation'
+  error.value = ''
+  submitting.value = true
+
+  try {
+    const layer = await updateKnowledgeLibraryLayer(props.libraryId, props.layer.id, {
+      encapsulation: {
+        pdu: forms.encapsulation.pdu,
+        nextLayer: forms.encapsulation.nextLayer
+      }
+    })
+    emit('layer-updated', layer)
+  } catch (err) {
+    error.value = err.message || '更新封装信息失败'
+  } finally {
+    submitting.value = false
+  }
+}
+
+const addHeaderField = async () => {
+  activeSection.value = 'encapsulation'
+  error.value = ''
+  submitting.value = true
+
+  try {
+    const layer = await addKnowledgeLayerHeaderField(props.libraryId, props.layer.id, forms.headerField.field)
+    emit('layer-updated', layer)
+    forms.headerField.field = ''
+  } catch (err) {
+    error.value = err.message || '添加封装字段失败'
+  } finally {
+    submitting.value = false
+  }
+}
+
 const toggle = (id) => {
   expanded[id] = !expanded[id]
 }
@@ -105,7 +246,17 @@ watch(() => props.layer.id, () => {
   sections.forEach(section => {
     expanded[section.id] = true
   })
+  error.value = ''
+  activeSection.value = ''
+  resetForms()
 })
+
+watch(() => props.layer.encapsulation, () => {
+  forms.encapsulation = {
+    pdu: props.layer.encapsulation?.pdu || '',
+    nextLayer: props.layer.encapsulation?.nextLayer || ''
+  }
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -255,5 +406,61 @@ watch(() => props.layer.id, () => {
   display: block;
   margin-bottom: 6px;
   color: var(--text-color);
+}
+
+.inline-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.inline-form.compact {
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+.inline-form input,
+.inline-form textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  color: var(--text-color);
+  font-family: var(--font-family);
+  font-size: 13px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.inline-form input:focus,
+.inline-form textarea:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+.inline-form button {
+  align-self: flex-start;
+  padding: 8px 14px;
+  border: 1px solid var(--primary-color);
+  border-radius: var(--border-radius);
+  background: var(--primary-color);
+  color: white;
+  cursor: pointer;
+  font-family: var(--font-family);
+  line-height: 1.5;
+}
+
+.inline-form button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.error-text {
+  margin-top: 12px;
+  color: #C84040;
+  font-size: 13px;
 }
 </style>
