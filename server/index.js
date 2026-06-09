@@ -6,8 +6,19 @@ const {
   getKnowledgeLibraryLayer,
   getKnowledgeLibraryGraph,
   createKnowledgeLibrary,
+  createKnowledgeLibraryTab,
+  updateKnowledgeLibraryTab,
+  deleteKnowledgeLibraryTab,
   updateKnowledgeLibraryLayer,
   addKnowledgeLayerSectionItem,
+  updateKnowledgeLayerSectionItem,
+  deleteKnowledgeLayerSectionItem,
+  createKnowledgeLayerSection,
+  updateKnowledgeLayerSection,
+  deleteKnowledgeLayerSection,
+  addKnowledgeLayerCustomSectionItem,
+  updateKnowledgeLayerCustomSectionItem,
+  deleteKnowledgeLayerCustomSectionItem,
   getKnowledgeTopics,
   getLayers,
   getLayer,
@@ -74,6 +85,31 @@ app.get('/api/knowledge/libraries/:libraryId/tabs', (req, res) => {
   res.json({ tabs: getKnowledgeLibraryTabs(req.params.libraryId) })
 })
 
+app.post('/api/knowledge/libraries/:libraryId/tabs', (req, res) => {
+  try {
+    const result = createKnowledgeLibraryTab(req.params.libraryId, req.body)
+    res.status(201).json(result)
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.patch('/api/knowledge/libraries/:libraryId/tabs/:tabId', (req, res) => {
+  try {
+    res.json(updateKnowledgeLibraryTab(req.params.libraryId, req.params.tabId, req.body))
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.delete('/api/knowledge/libraries/:libraryId/tabs/:tabId', (req, res) => {
+  try {
+    res.json(deleteKnowledgeLibraryTab(req.params.libraryId, req.params.tabId))
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
 app.get('/api/knowledge/libraries/:libraryId/layers', (req, res) => {
   res.json({ layers: getKnowledgeLibraryLayers(req.params.libraryId) })
 })
@@ -98,10 +134,55 @@ app.patch('/api/knowledge/libraries/:libraryId/layers/:layerId', (req, res) => {
   }
 })
 
-app.post('/api/knowledge/libraries/:libraryId/layers/:layerId/:section', (req, res) => {
+app.post('/api/knowledge/libraries/:libraryId/layers/:layerId/sections', (req, res) => {
   try {
-    const layer = addKnowledgeLayerSectionItem(req.params.libraryId, req.params.layerId, req.params.section, req.body)
+    const layer = createKnowledgeLayerSection(req.params.libraryId, req.params.layerId, req.body)
     res.status(201).json({ layer })
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.patch('/api/knowledge/libraries/:libraryId/layers/:layerId/sections/:sectionId', (req, res) => {
+  try {
+    const layer = updateKnowledgeLayerSection(req.params.libraryId, req.params.layerId, req.params.sectionId, req.body)
+    res.json({ layer })
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.delete('/api/knowledge/libraries/:libraryId/layers/:layerId/sections/:sectionId', (req, res) => {
+  try {
+    const layer = deleteKnowledgeLayerSection(req.params.libraryId, req.params.layerId, req.params.sectionId)
+    res.json({ layer })
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.post('/api/knowledge/libraries/:libraryId/layers/:layerId/sections/:sectionId/items', (req, res) => {
+  try {
+    const layer = addKnowledgeLayerCustomSectionItem(req.params.libraryId, req.params.layerId, req.params.sectionId, req.body)
+    res.status(201).json({ layer })
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.patch('/api/knowledge/libraries/:libraryId/layers/:layerId/sections/:sectionId/items/:itemIndex', (req, res) => {
+  try {
+    const layer = updateKnowledgeLayerCustomSectionItem(req.params.libraryId, req.params.layerId, req.params.sectionId, req.params.itemIndex, req.body)
+    res.json({ layer })
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.delete('/api/knowledge/libraries/:libraryId/layers/:layerId/sections/:sectionId/items/:itemIndex', (req, res) => {
+  try {
+    const layer = deleteKnowledgeLayerCustomSectionItem(req.params.libraryId, req.params.layerId, req.params.sectionId, req.params.itemIndex)
+    res.json({ layer })
   } catch (error) {
     sendKnowledgeError(res, error)
   }
@@ -116,6 +197,47 @@ app.post('/api/knowledge/libraries/:libraryId/layers/:layerId/encapsulation/head
       req.body
     )
     res.status(201).json({ layer })
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.delete('/api/knowledge/libraries/:libraryId/layers/:layerId/encapsulation/header-fields/:itemIndex', (req, res) => {
+  try {
+    const layer = deleteKnowledgeLayerSectionItem(
+      req.params.libraryId,
+      req.params.layerId,
+      'encapsulation/header-fields',
+      req.params.itemIndex
+    )
+    res.json({ layer })
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.post('/api/knowledge/libraries/:libraryId/layers/:layerId/:section', (req, res) => {
+  try {
+    const layer = addKnowledgeLayerSectionItem(req.params.libraryId, req.params.layerId, req.params.section, req.body)
+    res.status(201).json({ layer })
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.patch('/api/knowledge/libraries/:libraryId/layers/:layerId/:section/:itemIndex', (req, res) => {
+  try {
+    const layer = updateKnowledgeLayerSectionItem(req.params.libraryId, req.params.layerId, req.params.section, req.params.itemIndex, req.body)
+    res.json({ layer })
+  } catch (error) {
+    sendKnowledgeError(res, error)
+  }
+})
+
+app.delete('/api/knowledge/libraries/:libraryId/layers/:layerId/:section/:itemIndex', (req, res) => {
+  try {
+    const layer = deleteKnowledgeLayerSectionItem(req.params.libraryId, req.params.layerId, req.params.section, req.params.itemIndex)
+    res.json({ layer })
   } catch (error) {
     sendKnowledgeError(res, error)
   }

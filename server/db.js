@@ -14,7 +14,7 @@ const DEFAULT_LIBRARY = {
   title: 'TCP/IP 五层模型',
   description: '分层学习核心概念、协议、设备、封装与协作关系',
   order: 1,
-  isBuiltin: 1
+  isBuiltin: 0
 }
 
 db.pragma('journal_mode = WAL')
@@ -189,6 +189,8 @@ if (libraryCount === 0) {
   seed()
 }
 
+db.prepare('UPDATE knowledge_libraries SET is_builtin = 0 WHERE id = ? AND is_builtin = 1').run(DEFAULT_LIBRARY_ID)
+
 const protocolCount = db.prepare('SELECT COUNT(*) AS count FROM protocol_items').get().count
 
 if (protocolCount === 0) {
@@ -272,6 +274,33 @@ const uniqueLibraryId = title => {
   return id
 }
 
+const uniqueTabId = (libraryId, title) => {
+  const baseId = slugify(title)
+  let id = baseId
+  let index = 1
+
+  while (db.prepare('SELECT id FROM knowledge_library_tabs WHERE library_id = ? AND id = ?').get(libraryId, id)) {
+    index += 1
+    id = `${baseId}-${index}`
+  }
+
+  return id
+}
+
+const uniqueSectionId = (layer, title) => {
+  const baseId = slugify(title)
+  let id = baseId
+  let index = 1
+  const existingIds = new Set((layer.customSections || []).map(section => section.id))
+
+  while (existingIds.has(id) || writableSections.has(id) || id === 'encapsulation') {
+    index += 1
+    id = `${baseId}-${index}`
+  }
+
+  return id
+}
+
 const assertString = (value, field) => {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new HttpError(400, `${field} 不能为空`)
@@ -285,6 +314,21 @@ function normalizeGraph(graphData = {}) {
     categories: Array.isArray(graphData.categories) ? graphData.categories : [],
     nodes: Array.isArray(graphData.nodes) ? graphData.nodes : [],
     edges: Array.isArray(graphData.edges) ? graphData.edges : []
+  }
+}
+
+function normalizeCustomSectionItem(item) {
+  return {
+    title: assertString(item?.title, '卡片标题'),
+    description: assertString(item?.description, '卡片描述')
+  }
+}
+
+function normalizeCustomSection(section) {
+  return {
+    id: assertString(section?.id, '自定义卡片 ID'),
+    title: assertString(section?.title, '自定义卡片标题'),
+    items: Array.isArray(section?.items) ? section.items.map(normalizeCustomSectionItem) : []
   }
 }
 
@@ -302,7 +346,8 @@ function normalizeLayer(layer, order) {
     protocols: Array.isArray(layer.protocols) ? layer.protocols : [],
     devices: Array.isArray(layer.devices) ? layer.devices : [],
     encapsulation: layer.encapsulation || { pdu: '', headerFields: [], nextLayer: '' },
-    collaboration: Array.isArray(layer.collaboration) ? layer.collaboration : []
+    collaboration: Array.isArray(layer.collaboration) ? layer.collaboration : [],
+    customSections: Array.isArray(layer.customSections) ? layer.customSections.map(normalizeCustomSection) : []
   }
 }
 
@@ -338,6 +383,41 @@ function getKnowledgeLayerRow(libraryId, id) {
     FROM knowledge_layers
     WHERE library_id = ? AND (id = ? OR id = ?)
   `).get(libraryId, id, `${libraryId}:${id}`)
+}
+
+function assertLayerWritable(libraryId, layerId) {
+  assertLibraryWritable(libraryId)
+  const row = getKnowledgeLayerRow(libraryId, layerId)
+
+  if (!row) {
+    throw new HttpError(404, '知识层级不存在')
+  }
+
+  return {
+    row,
+    layer: parseLayer(row)
+  }
+}
+
+function assertItemIndex(items, itemIndex) {
+  const index = Number(itemIndex)
+
+  if (!Number.isInteger(index) || index < 0 || index >= items.length) {
+    throw new HttpError(404, '知识卡片不存在')
+  }
+
+  return index
+}
+
+function findCustomSection(layer, sectionId) {
+  const sections = layer.customSections || []
+  const index = sections.findIndex(section => section.id === sectionId)
+
+  if (index === -1) {
+    throw new HttpError(404, '自定义卡片不存在')
+  }
+
+  return { sections, section: sections[index], index }
 }
 
 function normalizeExamples(examples) {
@@ -399,6 +479,14 @@ function saveKnowledgeLayer(rowId, layer) {
   })
 }
 
+function syncKnowledgeLayerTitle(libraryId, layerId, title) {
+  db.prepare(`
+    UPDATE knowledge_library_tabs
+    SET title = ?
+    WHERE library_id = ? AND id = ?
+  `).run(title, libraryId, layerId)
+}
+
 function getKnowledgeLibraries() {
   return db.prepare(`
     SELECT id, title, description, item_order AS "order", is_builtin AS "isBuiltin"
@@ -430,15 +518,91 @@ function getKnowledgeLibraryLayer(libraryId, id) {
   return row ? parseLayer(row) : null
 }
 
-function updateKnowledgeLibraryLayer(libraryId, layerId, patch) {
+function createKnowledgeLibraryTab(libraryId, payload) {
   assertLibraryWritable(libraryId)
-  const row = getKnowledgeLayerRow(libraryId, layerId)
+  const title = assertString(payload?.title, '页面标题')
+  const summary = typeof payload?.summary === 'string' ? payload.summary : ''
+  const id = uniqueTabId(libraryId, title)
+  const nextOrder = db.prepare('SELECT COALESCE(MAX(tab_order), 0) + 1 AS nextOrder FROM knowledge_library_tabs WHERE library_id = ?').get(libraryId).nextOrder
+  const layer = normalizeLayer({
+    id,
+    title,
+    order: nextOrder,
+    summary,
+    concepts: [],
+    protocols: [],
+    devices: [],
+    encapsulation: { pdu: '', headerFields: [], nextLayer: '' },
+    collaboration: [],
+    customSections: []
+  }, nextOrder)
+
+  const create = db.transaction(() => {
+    db.prepare(`
+      INSERT INTO knowledge_library_tabs (id, library_id, title, tab_order)
+      VALUES (@id, @libraryId, @title, @order)
+    `).run({ id, libraryId, title, order: nextOrder })
+    db.prepare(`
+      INSERT INTO knowledge_layers (id, title, layer_order, summary, data, library_id)
+      VALUES (@rowId, @title, @order, @summary, @data, @libraryId)
+    `).run({
+      rowId: `${libraryId}:${id}`,
+      title,
+      order: nextOrder,
+      summary,
+      data: JSON.stringify(layer),
+      libraryId
+    })
+  })
+
+  create()
+  return { tab: { id, title, order: nextOrder }, layer }
+}
+
+function updateKnowledgeLibraryTab(libraryId, tabId, patch) {
+  assertLibraryWritable(libraryId)
+  const title = assertString(patch?.title, '页面标题')
+  const { row, layer: currentLayer } = assertLayerWritable(libraryId, tabId)
+  const nextLayer = normalizeLayer({ ...currentLayer, title }, currentLayer.order)
+
+  const update = db.transaction(() => {
+    db.prepare(`
+      UPDATE knowledge_library_tabs
+      SET title = ?
+      WHERE library_id = ? AND id = ?
+    `).run(title, libraryId, tabId)
+    saveKnowledgeLayer(row.id, nextLayer)
+  })
+
+  update()
+  return { tab: { id: tabId, title, order: nextLayer.order }, layer: nextLayer }
+}
+
+function deleteKnowledgeLibraryTab(libraryId, tabId) {
+  assertLibraryWritable(libraryId)
+
+  if (tabId === 'graph') {
+    throw new HttpError(400, '知识图谱页面不可删除')
+  }
+
+  const row = getKnowledgeLayerRow(libraryId, tabId)
 
   if (!row) {
     throw new HttpError(404, '知识层级不存在')
   }
 
-  const currentLayer = parseLayer(row)
+  const remove = db.transaction(() => {
+    db.prepare('DELETE FROM knowledge_library_tabs WHERE library_id = ? AND id = ?').run(libraryId, tabId)
+    db.prepare('DELETE FROM knowledge_layers WHERE id = ?').run(row.id)
+  })
+
+  remove()
+  return { id: tabId }
+}
+
+function updateKnowledgeLibraryLayer(libraryId, layerId, patch) {
+  const { row, layer: currentLayer } = assertLayerWritable(libraryId, layerId)
+
   const nextEncapsulation = patch?.encapsulation
     ? {
         ...currentLayer.encapsulation,
@@ -455,19 +619,19 @@ function updateKnowledgeLibraryLayer(libraryId, layerId, patch) {
     encapsulation: nextEncapsulation
   }, currentLayer.order)
 
-  saveKnowledgeLayer(row.id, nextLayer)
+  const update = db.transaction(() => {
+    saveKnowledgeLayer(row.id, nextLayer)
+    if (nextLayer.title !== currentLayer.title) {
+      syncKnowledgeLayerTitle(libraryId, layerId, nextLayer.title)
+    }
+  })
+
+  update()
   return nextLayer
 }
 
 function addKnowledgeLayerSectionItem(libraryId, layerId, section, item) {
-  assertLibraryWritable(libraryId)
-  const row = getKnowledgeLayerRow(libraryId, layerId)
-
-  if (!row) {
-    throw new HttpError(404, '知识层级不存在')
-  }
-
-  const currentLayer = parseLayer(row)
+  const { row, layer: currentLayer } = assertLayerWritable(libraryId, layerId)
 
   if (section === 'encapsulation/header-fields') {
     const field = assertString(item?.field, '封装字段')
@@ -491,6 +655,154 @@ function addKnowledgeLayerSectionItem(libraryId, layerId, section, item) {
   const nextLayer = normalizeLayer({
     ...currentLayer,
     [section]: [...(currentLayer[section] || []), sectionItem]
+  }, currentLayer.order)
+
+  saveKnowledgeLayer(row.id, nextLayer)
+  return nextLayer
+}
+
+function updateKnowledgeLayerSectionItem(libraryId, layerId, section, itemIndex, patch) {
+  if (!writableSections.has(section)) {
+    throw new HttpError(400, '不支持的知识字段')
+  }
+
+  const { row, layer: currentLayer } = assertLayerWritable(libraryId, layerId)
+  const items = currentLayer[section] || []
+  const index = assertItemIndex(items, itemIndex)
+  const sectionItem = normalizeSectionItem(section, { ...items[index], ...patch })
+  const nextLayer = normalizeLayer({
+    ...currentLayer,
+    [section]: items.map((item, itemIndex) => itemIndex === index ? sectionItem : item)
+  }, currentLayer.order)
+
+  saveKnowledgeLayer(row.id, nextLayer)
+  return nextLayer
+}
+
+function deleteKnowledgeLayerSectionItem(libraryId, layerId, section, itemIndex) {
+  const { row, layer: currentLayer } = assertLayerWritable(libraryId, layerId)
+
+  if (section === 'encapsulation/header-fields') {
+    const fields = currentLayer.encapsulation?.headerFields || []
+    const index = assertItemIndex(fields, itemIndex)
+    const nextLayer = normalizeLayer({
+      ...currentLayer,
+      encapsulation: {
+        ...currentLayer.encapsulation,
+        headerFields: fields.filter((_, fieldIndex) => fieldIndex !== index)
+      }
+    }, currentLayer.order)
+
+    saveKnowledgeLayer(row.id, nextLayer)
+    return nextLayer
+  }
+
+  if (!writableSections.has(section)) {
+    throw new HttpError(400, '不支持的知识字段')
+  }
+
+  const items = currentLayer[section] || []
+  const index = assertItemIndex(items, itemIndex)
+  const nextLayer = normalizeLayer({
+    ...currentLayer,
+    [section]: items.filter((_, currentIndex) => currentIndex !== index)
+  }, currentLayer.order)
+
+  saveKnowledgeLayer(row.id, nextLayer)
+  return nextLayer
+}
+
+function createKnowledgeLayerSection(libraryId, layerId, payload) {
+  const { row, layer: currentLayer } = assertLayerWritable(libraryId, layerId)
+  const title = assertString(payload?.title, '卡片标题')
+  const section = normalizeCustomSection({
+    id: uniqueSectionId(currentLayer, title),
+    title,
+    items: []
+  })
+  const nextLayer = normalizeLayer({
+    ...currentLayer,
+    customSections: [...(currentLayer.customSections || []), section]
+  }, currentLayer.order)
+
+  saveKnowledgeLayer(row.id, nextLayer)
+  return nextLayer
+}
+
+function updateKnowledgeLayerSection(libraryId, layerId, sectionId, patch) {
+  const { row, layer: currentLayer } = assertLayerWritable(libraryId, layerId)
+  const { sections, index } = findCustomSection(currentLayer, sectionId)
+  const nextSection = normalizeCustomSection({
+    ...sections[index],
+    title: patch?.title === undefined ? sections[index].title : patch.title
+  })
+  const nextLayer = normalizeLayer({
+    ...currentLayer,
+    customSections: sections.map((section, sectionIndex) => sectionIndex === index ? nextSection : section)
+  }, currentLayer.order)
+
+  saveKnowledgeLayer(row.id, nextLayer)
+  return nextLayer
+}
+
+function deleteKnowledgeLayerSection(libraryId, layerId, sectionId) {
+  const { row, layer: currentLayer } = assertLayerWritable(libraryId, layerId)
+  const { sections, index } = findCustomSection(currentLayer, sectionId)
+  const nextLayer = normalizeLayer({
+    ...currentLayer,
+    customSections: sections.filter((_, sectionIndex) => sectionIndex !== index)
+  }, currentLayer.order)
+
+  saveKnowledgeLayer(row.id, nextLayer)
+  return nextLayer
+}
+
+function addKnowledgeLayerCustomSectionItem(libraryId, layerId, sectionId, item) {
+  const { row, layer: currentLayer } = assertLayerWritable(libraryId, layerId)
+  const { sections, section, index } = findCustomSection(currentLayer, sectionId)
+  const sectionItem = normalizeCustomSectionItem(item)
+  const nextSection = normalizeCustomSection({
+    ...section,
+    items: [...section.items, sectionItem]
+  })
+  const nextLayer = normalizeLayer({
+    ...currentLayer,
+    customSections: sections.map((section, sectionIndex) => sectionIndex === index ? nextSection : section)
+  }, currentLayer.order)
+
+  saveKnowledgeLayer(row.id, nextLayer)
+  return nextLayer
+}
+
+function updateKnowledgeLayerCustomSectionItem(libraryId, layerId, sectionId, itemIndex, patch) {
+  const { row, layer: currentLayer } = assertLayerWritable(libraryId, layerId)
+  const { sections, section, index } = findCustomSection(currentLayer, sectionId)
+  const itemPosition = assertItemIndex(section.items, itemIndex)
+  const sectionItem = normalizeCustomSectionItem({ ...section.items[itemPosition], ...patch })
+  const nextSection = normalizeCustomSection({
+    ...section,
+    items: section.items.map((item, itemIndex) => itemIndex === itemPosition ? sectionItem : item)
+  })
+  const nextLayer = normalizeLayer({
+    ...currentLayer,
+    customSections: sections.map((section, sectionIndex) => sectionIndex === index ? nextSection : section)
+  }, currentLayer.order)
+
+  saveKnowledgeLayer(row.id, nextLayer)
+  return nextLayer
+}
+
+function deleteKnowledgeLayerCustomSectionItem(libraryId, layerId, sectionId, itemIndex) {
+  const { row, layer: currentLayer } = assertLayerWritable(libraryId, layerId)
+  const { sections, section, index } = findCustomSection(currentLayer, sectionId)
+  const itemPosition = assertItemIndex(section.items, itemIndex)
+  const nextSection = normalizeCustomSection({
+    ...section,
+    items: section.items.filter((_, itemIndex) => itemIndex !== itemPosition)
+  })
+  const nextLayer = normalizeLayer({
+    ...currentLayer,
+    customSections: sections.map((section, sectionIndex) => sectionIndex === index ? nextSection : section)
   }, currentLayer.order)
 
   saveKnowledgeLayer(row.id, nextLayer)
@@ -631,8 +943,19 @@ module.exports = {
   getKnowledgeLibraryLayer,
   getKnowledgeLibraryGraph,
   createKnowledgeLibrary,
+  createKnowledgeLibraryTab,
+  updateKnowledgeLibraryTab,
+  deleteKnowledgeLibraryTab,
   updateKnowledgeLibraryLayer,
   addKnowledgeLayerSectionItem,
+  updateKnowledgeLayerSectionItem,
+  deleteKnowledgeLayerSectionItem,
+  createKnowledgeLayerSection,
+  updateKnowledgeLayerSection,
+  deleteKnowledgeLayerSection,
+  addKnowledgeLayerCustomSectionItem,
+  updateKnowledgeLayerCustomSectionItem,
+  deleteKnowledgeLayerCustomSectionItem,
   getKnowledgeTopics,
   getLayers,
   getLayer,
