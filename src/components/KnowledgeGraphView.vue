@@ -45,10 +45,18 @@ const layerTitle = (id) => {
 }
 
 const buildOption = () => {
+  const degreeMap = {}
+  ;(props.graph.edges || []).forEach(edge => {
+    degreeMap[edge.source] = (degreeMap[edge.source] || 0) + 1
+    degreeMap[edge.target] = (degreeMap[edge.target] || 0) + 1
+  })
+
   const nodes = (props.graph.nodes || []).map(node => ({
     ...node,
     category: categoryNames.value.indexOf(node.category),
-    symbolSize: node.category === '层级' ? 58 : 42
+    symbolSize: node.category === '层级'
+      ? Math.min(72, 48 + (degreeMap[node.id] || 0) * 3)
+      : Math.min(52, 34 + (degreeMap[node.id] || 0) * 3)
   }))
 
   const edges = (props.graph.edges || []).map(edge => ({
@@ -78,6 +86,7 @@ const buildOption = () => {
       {
         type: 'graph',
         layout: 'force',
+        layoutAnimation: false,
         roam: true,
         draggable: true,
         categories: (props.graph.categories || []).map(item => ({
@@ -89,8 +98,10 @@ const buildOption = () => {
         data: nodes,
         links: edges,
         force: {
-          repulsion: 220,
-          edgeLength: 110
+          repulsion: 600,
+          edgeLength: [140, 280],
+          gravity: 0.04,
+          friction: 0.6
         },
         label: {
           show: true,
@@ -102,7 +113,7 @@ const buildOption = () => {
         edgeSymbolSize: 8,
         lineStyle: {
           color: '#999',
-          curveness: 0.08
+          curveness: 0.25
         },
         emphasis: {
           focus: 'adjacency'
